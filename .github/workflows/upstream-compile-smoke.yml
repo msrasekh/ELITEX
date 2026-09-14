@@ -1,0 +1,35 @@
+name: ELITEX Upstream Compile Smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  legacy-backend:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Clone upstream
+        run: git clone --depth 1 --branch master https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git src
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+          cache: maven
+      - name: Maven framework verify
+        run: mvn -f src/00_framework/pom.xml -DskipTests=false clean verify
+      - name: Maven wallet RPC verify
+        run: mvn -f src/01_wallet_rpc/pom.xml -DskipTests=false clean verify
+
+  legacy-web:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Clone upstream
+        run: git clone --depth 1 --branch master https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '10.24.1'
+      - name: Build user web
+        run: cd src/05_Web_Front && npm install && npm run build
+      - name: Build admin web
+        run: cd src/04_Web_Admin && npm install && npm run build
