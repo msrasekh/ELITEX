@@ -21,37 +21,12 @@ jobs:
           target="ci-source/ELITEX_OVERLAY_RC18_8.tar.xz"
           expected_sha="52b120a01c2086e84b934ba8bb6afb692ab0568794b263f831d01da98a8a6907"
           expected_size="1523380"
-          file_id="1U-i_9wDxOj9wY-ZLOmz66Ff23l3fG3j9"
-          verify_overlay() {
-            [ -f "$target" ] || return 1
-            [ "$(stat -c%s "$target")" = "$expected_size" ] || return 1
-            echo "$expected_sha  $target" | sha256sum -c -
-          }
-          rm -f "$target"
-          stamp="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-$(date +%s%N)"
-          urls=(
-            "https://drive.google.com/uc?export=download&id=${file_id}&confirm=t&cachebust=${stamp}"
-            "https://drive.usercontent.google.com/download?id=${file_id}&export=download&confirm=t&uuid=${stamp}"
-          )
-          for url in "${urls[@]}"; do
-            echo "Trying fresh Drive endpoint..."
-            rm -f "$target"
-            if curl -L --fail --retry 3 --retry-delay 2 -H 'Cache-Control: no-cache' "$url" -o "$target"; then
-              echo "Downloaded bytes: $(stat -c%s "$target")"
-              if verify_overlay; then
-                echo "Verified ELITEX RC18.8 overlay"
-                break
-              fi
-            fi
-          done
-          if ! verify_overlay; then
-            echo "Direct Drive endpoints did not yield the locked payload; trying gdown resolver"
-            python3 -m pip install --quiet gdown
-            rm -f "$target"
-            gdown "$file_id" -O "$target"
-            echo "gdown bytes: $(stat -c%s "$target")"
-            verify_overlay
-          fi
+          signed_url='https://sdmntprpolandcentral.oaiusercontent.com/files/00000000-bdc8-820a-bd54-0bdfcbba7338/raw?se=2026-09-14T18%3A41%3A48Z&sp=r&sv=2026-02-06&sr=b&scid=615dfbd1-58a4-5ec0-954e-90dd1ddb88fd&skoid=a0b9f82a-c86e-4064-a822-2aa38890bb37&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-14T07%3A19%3A00Z&ske=2026-09-15T07%3A19%3A00Z&sks=b&skv=2026-02-06&sig=r9qu19dpNe8D52M9eWd76jevtaxe0aWh7nnJ4oqtzWM%3D'
+          curl -L --fail --retry 3 --retry-delay 2 "$signed_url" -o "$target"
+          echo "Downloaded bytes: $(stat -c%s "$target")"
+          [ "$(stat -c%s "$target")" = "$expected_size" ]
+          echo "$expected_sha  $target" | sha256sum -c -
+          echo "Verified ELITEX RC18.8 overlay"
       - name: Reconstruct complete ELITEX source
         shell: bash
         run: |
