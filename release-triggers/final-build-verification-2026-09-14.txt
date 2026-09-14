@@ -1,0 +1,6 @@
+ELITEX final Build/Verification/Artifact Delivery trigger
+UTC date: 2026-09-14
+Overlay: ELITEX_OVERLAY_RC18_8.tar.xz
+Bytes: 1523380
+SHA256: 52b120a01c2086e84b934ba8bb6afb692ab0568794b263f831d01da98a8a6907
+Purpose: trigger the locked full-release workflow on main after Admin Web smoke passed.
