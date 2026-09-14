@@ -1,0 +1,25 @@
+name: ELITEX Fetch Upstream Snapshot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fetch-upstream.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Clone exact upstream master
+        run: git clone --depth 1 --branch master https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git upstream
+      - name: Pack upstream
+        run: tar -czf upstream-master.tar.gz upstream
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upstream-master-source
+          path: upstream-master.tar.gz
+          retention-days: 1
