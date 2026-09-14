@@ -1,0 +1,28 @@
+name: ELITEX Export Pinned Upstream
+
+on:
+  push:
+    branches: [final-release-selfcontained]
+    paths: ['.github/workflows/export-upstream.yml']
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Clone pinned upstream
+        run: |
+          set -euo pipefail
+          git clone https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git upstream
+          cd upstream
+          git checkout 8adf508b996020d3efbeeb2473d7235bd01436fa
+          rm -rf .git
+          cd ..
+          tar -cJf upstream-pinned.tar.xz upstream
+          sha256sum upstream-pinned.tar.xz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upstream-pinned
+          path: upstream-pinned.tar.xz
+          if-no-files-found: error
+          retention-days: 2
