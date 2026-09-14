@@ -32,7 +32,7 @@ jobs:
           test -f prepared/04_Web_Admin/package.json
           test -d prepared/02_App_Android_ELITEX
           test -d prepared/03_APP_IOS_ELITEX
-          test -f prepared/ELITEX_MODERNIZATION/ELITEX_OVERLAY_MANIFEST.json
+          test -f prepared/ELITEX_OVERLAY_MANIFEST.json
           echo "ELITEX RC18 full-source baseline reconstructed"
           tar -cJf prepared-source.tar.xz prepared
       - uses: actions/upload-artifact@v4
