@@ -48,7 +48,7 @@ jobs:
             echo "Direct Drive endpoints did not yield the locked payload; trying gdown resolver"
             python3 -m pip install --quiet gdown
             rm -f "$target"
-            gdown --fuzzy "https://drive.google.com/file/d/${file_id}/view" -O "$target"
+            gdown "$file_id" -O "$target"
             echo "gdown bytes: $(stat -c%s "$target")"
             verify_overlay
           fi
