@@ -98,7 +98,7 @@ jobs:
           p.write_text(s)
           PY
 
-      - name: Setup Node for user web
+      - name: Setup Node 10 for legacy web builds
         uses: actions/setup-node@v4
         with:
           node-version: '10.24.1'
@@ -106,14 +106,9 @@ jobs:
       - name: Build user web
         run: cd src/05_Web_Front && npm install && npm run build
 
-      - name: Setup compatible Node for legacy Admin Web
-        uses: actions/setup-node@v4
-        with:
-          node-version: '16.20.2'
-
       - name: Install admin dependencies
         working-directory: src/04_Web_Admin
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Build admin web
         working-directory: src/04_Web_Admin
