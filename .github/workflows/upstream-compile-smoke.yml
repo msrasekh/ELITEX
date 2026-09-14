@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   legacy-backend:
@@ -116,24 +115,16 @@ jobs:
 
       - name: Build admin web with captured diagnostics
         working-directory: src/04_Web_Admin
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          set +e
+          set -o pipefail
           npm run build 2>&1 | tee admin-build.log
-          rc=${PIPESTATUS[0]}
-          set -e
-          if [ "$rc" -ne 0 ]; then
-            {
-              echo 'Legacy Admin Web production build failed.'
-              echo
-              echo '```text'
-              tail -n 180 admin-build.log
-              echo '```'
-              echo
-              echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            } > /tmp/admin-ci-issue.md
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "[CI] Admin Web build failure ${GITHUB_RUN_ID}" --body-file /tmp/admin-ci-issue.md
-            exit "$rc"
-          fi
+
+      - name: Upload admin build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-build-diagnostics
+          path: src/04_Web_Admin/admin-build.log
+          if-no-files-found: error
+          retention-days: 3
