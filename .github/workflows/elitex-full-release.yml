@@ -18,15 +18,46 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ci-source
-          if [ ! -f ci-source/ELITEX_OVERLAY_RC18_8.tar.xz ]; then
-            curl -L --fail --retry 3 --retry-delay 2 "https://drive.usercontent.google.com/download?id=1U-i_9wDxOj9wY-ZLOmz66Ff23l3fG3j9&export=download&confirm=t" -o ci-source/ELITEX_OVERLAY_RC18_8.tar.xz
+          target="ci-source/ELITEX_OVERLAY_RC18_8.tar.xz"
+          expected_sha="52b120a01c2086e84b934ba8bb6afb692ab0568794b263f831d01da98a8a6907"
+          expected_size="1523380"
+          file_id="1U-i_9wDxOj9wY-ZLOmz66Ff23l3fG3j9"
+          verify_overlay() {
+            [ -f "$target" ] || return 1
+            [ "$(stat -c%s "$target")" = "$expected_size" ] || return 1
+            echo "$expected_sha  $target" | sha256sum -c -
+          }
+          rm -f "$target"
+          stamp="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-$(date +%s%N)"
+          urls=(
+            "https://drive.google.com/uc?export=download&id=${file_id}&confirm=t&cachebust=${stamp}"
+            "https://drive.usercontent.google.com/download?id=${file_id}&export=download&confirm=t&uuid=${stamp}"
+          )
+          for url in "${urls[@]}"; do
+            echo "Trying fresh Drive endpoint..."
+            rm -f "$target"
+            if curl -L --fail --retry 3 --retry-delay 2 -H 'Cache-Control: no-cache' "$url" -o "$target"; then
+              echo "Downloaded bytes: $(stat -c%s "$target")"
+              if verify_overlay; then
+                echo "Verified ELITEX RC18.8 overlay"
+                break
+              fi
+            fi
+          done
+          if ! verify_overlay; then
+            echo "Direct Drive endpoints did not yield the locked payload; trying gdown resolver"
+            python3 -m pip install --quiet gdown
+            rm -f "$target"
+            gdown --fuzzy "https://drive.google.com/file/d/${file_id}/view" -O "$target"
+            echo "gdown bytes: $(stat -c%s "$target")"
+            verify_overlay
           fi
-          echo "52b120a01c2086e84b934ba8bb6afb692ab0568794b263f831d01da98a8a6907  ci-source/ELITEX_OVERLAY_RC18_8.tar.xz" | sha256sum -c -
       - name: Reconstruct complete ELITEX source
         shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch master https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git prepared
+          git clone https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git prepared
+          git -C prepared checkout 8adf508b996020d3efbeeb2473d7235bd01436fa
           tar -xJf ci-source/ELITEX_OVERLAY_RC18_8.tar.xz -C prepared
           test -f prepared/00_framework/pom.xml
           test -f prepared/01_wallet_rpc/pom.xml
@@ -59,13 +90,11 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import xml.etree.ElementTree as ET
-
           framework = Path('prepared/00_framework/exchange-api/pom.xml')
           if framework.is_file():
               s = framework.read_text()
               s = s.replace('E:/10_Exchange/src/BizzanExchange_framework/jar/spark-core-2.6.0.jar', '${project.basedir}/../jar/spark-core-2.6.0.jar')
               framework.write_text(s)
-
           pom = Path('prepared/01_wallet_rpc/pom.xml')
           ns_uri = 'http://maven.apache.org/POM/4.0.0'
           ns = {'m': ns_uri}
@@ -126,7 +155,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with: {name: prepared-source}
       - run: tar -xJf prepared-source.tar.xz
-      - name: Normalize Linux route casing
+      - name: Normalize Linux route/import casing
         shell: bash
         run: |
           python3 - <<'PY'
@@ -142,11 +171,31 @@ jobs:
                 '../pages/exchange/exchange':'../pages/exchange/Exchange',
                 '../pages/cms/help':'../pages/cms/Help',
               }
-              for a,b in replacements.items():
-                  s=s.replace(a,b)
+              for a,b in replacements.items(): s=s.replace(a,b)
+              p.write_text(s)
+          for file in [
+              'prepared/04_Web_Admin/src/views/activity/AddActivity.vue',
+              'prepared/04_Web_Admin/src/views/content/AddHelpManage.vue',
+              'prepared/04_Web_Admin/src/views/content/AddAnnouncement.vue',
+              'prepared/04_Web_Admin/src/views/redenvelope/AddRedEnvelope.vue',
+          ]:
+              p=Path(file)
+              if p.is_file():
+                  p.write_text(p.read_text().replace('@/SMEditor/SMEditor.vue','@/smeditor/SMEditor.vue'))
+          p=Path('prepared/04_Web_Admin/src/router/router.js')
+          if p.is_file():
+              s=p.read_text()
+              replacements={
+                '@/views/content/helpManage.vue':'@/views/content/HelpManage.vue',
+                '@/views/member/MemberManage.vue':'@/views/member/memberManage.vue',
+                '@/views/otc/AdManage.vue':'@/views/otc/adManage.vue',
+                '@/views/otc/CoinManage.vue':'@/views/otc/coinManage.vue',
+                '@/views/otc/OrderManage.vue':'@/views/otc/orderManage.vue',
+              }
+              for a,b in replacements.items(): s=s.replace(a,b)
               p.write_text(s)
           PY
-      - name: Setup Node for legacy user web
+      - name: Setup Node 10 for legacy web builds
         uses: actions/setup-node@v4
         with: {node-version: '10.24.1'}
       - name: Build legacy user web
@@ -154,13 +203,10 @@ jobs:
         run: |
           npm install
           npm run build
-      - name: Setup compatible Node for legacy admin web
-        uses: actions/setup-node@v4
-        with: {node-version: '16.20.2'}
       - name: Build legacy admin web
         working-directory: prepared/04_Web_Admin
         run: |
-          npm install --legacy-peer-deps
+          npm install
           npm run build
       - uses: actions/upload-artifact@v4
         with:
