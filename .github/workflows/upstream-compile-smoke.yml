@@ -9,8 +9,21 @@ jobs:
   legacy-backend:
     runs-on: ubuntu-24.04
     steps:
-      - name: Clone upstream
-        run: git clone --depth 1 --branch master https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git src
+      - name: Clone pinned upstream
+        run: |
+          git clone https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git src
+          git -C src checkout 8adf508b996020d3efbeeb2473d7235bd01436fa
+      - name: Apply confirmed cross-platform Maven fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/00_framework/exchange-api/pom.xml')
+          s=p.read_text()
+          s=s.replace('E:/10_Exchange/src/BizzanExchange_framework/jar/spark-core-2.6.0.jar','${project.basedir}/../jar/spark-core-2.6.0.jar')
+          p.write_text(s)
+          PY
+          test -f src/00_framework/jar/spark-core-2.6.0.jar
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -24,8 +37,28 @@ jobs:
   legacy-web:
     runs-on: ubuntu-22.04
     steps:
-      - name: Clone upstream
-        run: git clone --depth 1 --branch master https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git src
+      - name: Clone pinned upstream
+        run: |
+          git clone https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git src
+          git -C src checkout 8adf508b996020d3efbeeb2473d7235bd01436fa
+      - name: Apply confirmed Linux case-sensitivity fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/05_Web_Front/src/config/routes.js')
+          s=p.read_text()
+          replacements={
+            '../pages/index/index':'../pages/index/Index',
+            '../pages/uc/login':'../pages/uc/Login',
+            '../pages/uc/register':'../pages/uc/Register',
+            '../pages/uc/findpwd':'../pages/uc/FindPwd',
+            '../pages/exchange/exchange':'../pages/exchange/Exchange',
+            '../pages/cms/help':'../pages/cms/Help',
+          }
+          for a,b in replacements.items(): s=s.replace(a,b)
+          p.write_text(s)
+          PY
       - uses: actions/setup-node@v4
         with:
           node-version: '10.24.1'
