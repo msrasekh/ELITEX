@@ -159,8 +159,6 @@ jobs:
         with: {node-version: '16.20.2'}
       - name: Build legacy admin web
         working-directory: prepared/04_Web_Admin
-        env:
-          NODE_OPTIONS: --openssl-legacy-provider
         run: |
           npm install --legacy-peer-deps
           npm run build
