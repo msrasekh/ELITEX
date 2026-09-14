@@ -1,0 +1,31 @@
+name: ELITEX Drive Probe
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Probe Google Drive download endpoints
+        shell: bash
+        run: |
+          set +e
+          mkdir -p probe
+          urls=(
+            'https://drive.google.com/uc?export=download&id=1U-i_9wDxOj9wY-ZLOmz66Ff23l3fG3j9'
+            'https://drive.usercontent.google.com/download?id=1U-i_9wDxOj9wY-ZLOmz66Ff23l3fG3j9&export=download&confirm=t'
+            'https://drive.google.com/file/d/1U-i_9wDxOj9wY-ZLOmz66Ff23l3fG3j9/view?usp=drivesdk'
+          )
+          i=0
+          for u in "${urls[@]}"; do
+            i=$((i+1))
+            curl -L -sS -D "probe/$i.headers" -o "probe/$i.body" -w '%{http_code}\n%{content_type}\n%{size_download}\n%{url_effective}\n' "$u" > "probe/$i.meta"
+            sha256sum "probe/$i.body" >> "probe/$i.meta" 2>&1
+            file "probe/$i.body" >> "probe/$i.meta" 2>&1
+            head -c 256 "probe/$i.body" | xxd >> "probe/$i.meta" 2>&1
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: drive-probe
+          path: probe/**
