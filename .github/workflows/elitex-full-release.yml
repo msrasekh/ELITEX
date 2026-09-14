@@ -1,0 +1,110 @@
+name: ELITEX Full Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  source-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify full-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f 00_framework/pom.xml
+          test -f 01_wallet_rpc/pom.xml
+          test -f 00_framework_modern/pom.xml
+          test -f 05_Web_Front/package.json
+          test -f 04_Web_Admin/package.json
+          test -d 02_App_Android_ELITEX
+          test -d 03_APP_IOS_ELITEX
+          echo "ELITEX full-source baseline detected"
+  legacy-backend:
+    needs: source-gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '8', cache: maven}
+      - run: mvn -f 00_framework/pom.xml -DskipTests=false clean verify
+      - run: mvn -f 01_wallet_rpc/pom.xml -DskipTests=false clean verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: legacy-java-artifacts
+          if-no-files-found: error
+          path: |
+            00_framework/**/target/*.jar
+            01_wallet_rpc/**/target/*.jar
+  modern-backend:
+    needs: source-gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - run: mvn -f 00_framework_modern/pom.xml -DskipTests=false clean verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modern-java-artifacts
+          if-no-files-found: error
+          path: 00_framework_modern/**/target/*.jar
+  legacy-web:
+    needs: source-gate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '10.24.1'}
+      - run: cd 05_Web_Front && npm ci && npm run build
+      - run: cd 04_Web_Admin && npm ci && npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: legacy-web-dist
+          if-no-files-found: error
+          path: |
+            05_Web_Front/dist/**
+            04_Web_Admin/dist/**
+  modern-web:
+    needs: source-gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - run: cd ELITEX_MODERNIZATION/frontend/user && npm install --package-lock-only && npm ci && npm run verify && npm run build
+      - run: cd ELITEX_MODERNIZATION/frontend/admin && npm install --package-lock-only && npm ci && npm run verify && npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modern-web-dist
+          if-no-files-found: error
+          path: |
+            05_Web_Front/dist-modern/**
+            04_Web_Admin/dist-modern/**
+  android:
+    needs: source-gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21'}
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.11.1'}
+      - run: cd 02_App_Android_ELITEX && gradle assembleRelease bundleRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          if-no-files-found: error
+          path: 02_App_Android_ELITEX/app/build/outputs/**
+  ios:
+    needs: source-gate
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: xcodebuild -project 03_APP_IOS_ELITEX/ELITEX.xcodeproj -scheme ELITEX -configuration Release -archivePath "$RUNNER_TEMP/ELITEX.xcarchive" archive CODE_SIGNING_ALLOWED=NO
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-xcarchive
+          if-no-files-found: error
+          path: ${{ runner.temp }}/ELITEX.xcarchive
