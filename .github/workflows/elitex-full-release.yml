@@ -13,11 +13,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Verify RC18 overlay
+      - name: Fetch and verify RC18 overlay
         shell: bash
         run: |
           set -euo pipefail
-          test -f ci-source/ELITEX_OVERLAY_RC18_8.tar.xz
+          mkdir -p ci-source
+          if [ ! -f ci-source/ELITEX_OVERLAY_RC18_8.tar.xz ]; then
+            curl -L --fail --retry 3 --retry-delay 2 "https://drive.usercontent.google.com/download?id=1U-i_9wDxOj9wY-ZLOmz66Ff23l3fG3j9&export=download&confirm=t" -o ci-source/ELITEX_OVERLAY_RC18_8.tar.xz
+          fi
           echo "52b120a01c2086e84b934ba8bb6afb692ab0568794b263f831d01da98a8a6907  ci-source/ELITEX_OVERLAY_RC18_8.tar.xz" | sha256sum -c -
       - name: Reconstruct complete ELITEX source
         shell: bash
