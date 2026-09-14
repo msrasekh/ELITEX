@@ -113,12 +113,8 @@ jobs:
 
       - name: Install admin dependencies
         working-directory: src/04_Web_Admin
-        env:
-          NODE_OPTIONS: --openssl-legacy-provider
         run: npm install --legacy-peer-deps
 
       - name: Build admin web
         working-directory: src/04_Web_Admin
-        env:
-          NODE_OPTIONS: --openssl-legacy-provider
         run: npm run build
