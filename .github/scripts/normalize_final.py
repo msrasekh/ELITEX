@@ -47,6 +47,17 @@ for p in root.rglob('*.java'):
     if 'org.springframework.util.Base64Utils' in n:
         n=n.replace('import org.springframework.util.Base64Utils;','import java.util.Base64;').replace('Base64Utils.encodeToString(', 'Base64.getEncoder().encodeToString(').replace('Base64Utils.decodeFromString(', 'Base64.getDecoder().decode(')
     if n!=s:p.write_text(n,encoding='utf-8')
+# Spring 7 / Framework 7: WebMvcConfigurer is an interface with default methods;
+# legacy super.add* calls are invalid. Keep the application's registrations intact
+# and remove only obsolete delegation to the interface default implementation.
+for rel in ['admin/src/main/java/com/bizzan/bitrade/config/ApplicationConfig.java','chat/src/main/java/com/bizzan/bitrade/config/ApplicationConfig.java']:
+    p=root/rel
+    if p.exists():
+        s=p.read_text(encoding='utf-8',errors='ignore')
+        s=re.sub(r'\s*super\.addResourceHandlers\([^;]+\);', '', s)
+        s=re.sub(r'\s*super\.addFormatters\([^;]+\);', '', s)
+        s=re.sub(r'\s*super\.addInterceptors\([^;]+\);', '', s)
+        p.write_text(s,encoding='utf-8')
 p=root/'admin/src/main/java/com/bizzan/bitrade/config/RedisCacheConfig.java'
 if p.exists():
     s=p.read_text(encoding='utf-8',errors='ignore'); s=re.sub(r'RedisCacheManager\s+cacheManager\s*=\s*new\s+RedisCacheManager\(redisTemplate\)\s*;', 'RedisCacheManager cacheManager = RedisCacheManager.create(redisTemplate.getConnectionFactory());', s); s=re.sub(r'\s*cacheManager\.setDefaultExpiration\([^;]+\);', '', s); p.write_text(s,encoding='utf-8')
@@ -56,9 +67,6 @@ if p.exists():
 p=root/'admin/src/main/java/com/bizzan/bitrade/job/MemberStatisticsJob.java'
 if p.exists():
     s=p.read_text(encoding='utf-8',errors='ignore'); s=re.sub(r'(memberLogDao|memberLogRepository)\.save\(([^;]+)\);', r'\1.save(java.util.Collections.singletonList(\2));', s); p.write_text(s,encoding='utf-8')
-p=root/'admin/src/main/java/com/bizzan/bitrade/config/ApplicationConfig.java'
-if p.exists():
-    s=p.read_text(encoding='utf-8',errors='ignore'); s=re.sub(r'\s*super\.addResourceHandlers\([^;]+\);', '', s); s=re.sub(r'\s*super\.addFormatters\([^;]+\);', '', s); s=re.sub(r'\s*super\.addInterceptors\([^;]+\);', '', s); p.write_text(s,encoding='utf-8')
 ap=root/'admin/pom.xml'; at=ET.parse(ap); ar=at.getroot(); adeps=ar.find('m:dependencies',N)
 if adeps is not None:
     present={(d.findtext('m:groupId',default='',namespaces=N),d.findtext('m:artifactId',default='',namespaces=N)) for d in adeps.findall('m:dependency',N)}
