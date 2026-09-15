@@ -11,11 +11,15 @@ for p in root.rglob('pom.xml'):
         sp=d.find('m:systemPath',N)
         if sp is not None and sp.text and re.match(r'^[A-Za-z]:/',sp.text):
             cand=list(root.rglob(Path(sp.text).name)); sp.text=str(cand[0].resolve()); ch=True
+    build=r.find('m:build',N)
+    if build is not None:
+        plugins=build.find('m:plugins',N)
+        if plugins is not None:
+            for pl in list(plugins.findall('m:plugin',N)):
+                a=pl.find('m:artifactId',N)
+                if a is not None and a.text=='apt-maven-plugin': plugins.remove(pl); ch=True
     if ch:t.write(p,encoding='utf-8',xml_declaration=True)
 cp=root/'core/pom.xml'; t=ET.parse(cp); r=t.getroot(); build=r.find('m:build',N); plugins=build.find('m:plugins',N)
-for pl in list(plugins.findall('m:plugin',N)):
-    a=pl.find('m:artifactId',N)
-    if a is not None and a.text=='apt-maven-plugin': plugins.remove(pl)
 compiler=next(pl for pl in plugins.findall('m:plugin',N) if pl.find('m:artifactId',N) is not None and pl.find('m:artifactId',N).text=='maven-compiler-plugin')
 conf=compiler.find('m:configuration',N); proc=conf.find('m:proc',N)
 if proc is None: proc=ET.SubElement(conf,f'{{{ns}}}proc')
@@ -38,7 +42,7 @@ for g,a,v in [('jakarta.persistence','jakarta.persistence-api','3.1.0'),('jakart
     if (g,a) not in existing:
         d=ET.SubElement(deps,f'{{{ns}}}dependency'); ET.SubElement(d,f'{{{ns}}}groupId').text=g; ET.SubElement(d,f'{{{ns}}}artifactId').text=a; ET.SubElement(d,f'{{{ns}}}version').text=v
 for p in root.rglob('*.java'):
-    s=p.read_text(encoding='utf-8',errors='ignore'); n=s.replace('javax.validation.constraints.NotBlank','jakarta.validation.constraints.NotBlank').replace('javax.validation.constraints.NotEmpty','jakarta.validation.constraints.NotEmpty').replace('org.hibernate.validator.constraints.NotBlank','jakarta.validation.constraints.NotBlank').replace('org.hibernate.validator.constraints.NotEmpty','jakarta.validation.constraints.NotEmpty').replace('import sun.misc.BASE64Encoder;','import java.util.Base64;').replace('import com.mongodb.Mongo;\n',''); n=re.sub(r'new BASE64Encoder\(\)\.encode\(([^;]+)\)',r'Base64.getEncoder().encodeToString(\1)',n)
+    s=p.read_text(encoding='utf-8',errors='ignore'); n=s.replace('javax.validation.constraints.NotBlank','jakarta.validation.constraints.NotBlank').replace('javax.validation.constraints.NotEmpty','jakarta.validation.constraints.NotEmpty').replace('org.hibernate.validator.constraints.NotBlank','jakarta.validation.constraints.NotBlank').replace('org.hibernate.validator.constraints.NotEmpty','jakarta.validation.constraints.NotEmpty').replace('import sun.misc.BASE64Encoder;','import java.util.Base64;').replace('import com.mongodb.Mongo;\n','').replace('import com.mongodb.Cursor;\n',''); n=re.sub(r'new BASE64Encoder\(\)\.encode\(([^;]+)\)',r'Base64.getEncoder().encodeToString(\1)',n)
     if n!=s:p.write_text(n,encoding='utf-8')
 for name in ['MemberInviteStasticDao.java','MemberInviteStasticRankDao.java']:
     p=next(root.rglob(name)); s=p.read_text(); s=s.replace(' findById(Long id)', ' findLegacyById(Long id)'); p.write_text(s)
@@ -47,11 +51,10 @@ p=next(root.rglob('TopBaseService.java')); s=p.read_text().replace('Sort.by(page
 p=next(root.rglob('Criteria.java')); s=p.read_text().replace('new Sort.Order(f);','new Sort.Order(Sort.Direction.ASC, f);'); p.write_text(s)
 p=next(root.rglob('SmartHttpSessionStrategy.java')); s=p.read_text().replace('jakarta.servlet.http.HttpServletRequest','javax.servlet.http.HttpServletRequest').replace('jakarta.servlet.http.HttpServletResponse','javax.servlet.http.HttpServletResponse'); p.write_text(s)
 p=next(root.rglob('AliyunUtil.java')); s=p.read_text().replace('BASE64Encoder b64Encoder = new BASE64Encoder();\n            encodeStr = b64Encoder.encode(md5Bytes);','encodeStr = Base64.getEncoder().encodeToString(md5Bytes);').replace('(new BASE64Encoder()).encode(rawHmac)','Base64.getEncoder().encodeToString(rawHmac)'); p.write_text(s)
-# Spring Test API migration while preserving transaction semantics.
 p=root/'core/src/test/java/com/bizzan/bitrade/test/BaseTest.java'
 if p.exists():
     s=p.read_text().replace('import org.springframework.test.context.transaction.TransactionConfiguration;','import org.springframework.transaction.annotation.Transactional;\nimport org.springframework.test.annotation.Rollback;').replace('@TransactionConfiguration(transactionManager = "transactionManager", defaultRollback = false)','@Transactional(transactionManager = "transactionManager")\n@Rollback(false)'); p.write_text(s)
 p=root/'core/src/test/java/com/bizzan/bitrade/test/JUnit4ClassRunner.java'
 if p.exists():
-    s=p.read_text(); s=s.replace('import org.springframework.util.Log4jConfigurer;\n',''); s=re.sub(r'\n    static \{.*?\n    \}\n','\n',s,flags=re.S); p.write_text(s)
+    s=p.read_text().replace('import org.springframework.util.Log4jConfigurer;\n',''); s=re.sub(r'\n    static \{.*?\n    \}\n','\n',s,flags=re.S); p.write_text(s)
 t.write(cp,encoding='utf-8',xml_declaration=True)
