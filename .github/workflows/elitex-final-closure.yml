@@ -1,0 +1,98 @@
+name: ELITEX Final Closure
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  closure:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover verified prepared source from successful source gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -L --fail -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10362279302/zip" -o prepared-artifact.zip
+          unzip -q prepared-artifact.zip
+          tar -xJf prepared-source.tar.xz
+          test -f prepared/00_framework_modern/pom.xml
+          test -f prepared/ELITEX_OVERLAY_MANIFEST.json
+      - name: Normalize modern Maven dependency management without removing modules
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          root=Path('prepared/00_framework_modern')
+          versions={
+            ('org.elasticsearch','elasticsearch'):'6.2.4',
+            ('org.springframework.session','spring-session'):'1.3.5.RELEASE',
+            ('mysql','mysql-connector-java'):'8.0.11',
+            ('ch.qos.logback','logback-core'):'1.2.13',
+            ('ch.qos.logback','logback-classic'):'1.2.13',
+            ('org.slf4j','slf4j-api'):'1.7.36',
+            ('io.reactivex','rxjava'):'1.3.8',
+          }
+          ns='http://maven.apache.org/POM/4.0.0'; N={'m':ns}; ET.register_namespace('',ns)
+          for p in root.rglob('pom.xml'):
+            tree=ET.parse(p); r=tree.getroot(); changed=False
+            for dep in r.findall('.//m:dependencies/m:dependency',N):
+              g=dep.find('m:groupId',N); a=dep.find('m:artifactId',N); v=dep.find('m:version',N)
+              key=((g.text or '').strip() if g is not None else '',(a.text or '').strip() if a is not None else '')
+              if key in versions and v is None:
+                v=ET.SubElement(dep,f'{{{ns}}}version'); v.text=versions[key]; changed=True
+              sp=dep.find('m:systemPath',N)
+              if sp is not None and sp.text and 'E:/10_Exchange/src/BizzanExchange_framework/jar/spark-core-2.6.0.jar' in sp.text:
+                sp.text='${project.basedir}/../jar/spark-core-2.6.0.jar'; changed=True
+            if changed: tree.write(p,encoding='utf-8',xml_declaration=True)
+          PY
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - name: Modern backend compile/test gate
+        run: mvn -f prepared/00_framework_modern/pom.xml -DskipTests=false clean verify
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - name: Modern web deterministic build gate
+        run: |
+          set -euo pipefail
+          for d in prepared/ELITEX_MODERNIZATION/frontend/user prepared/ELITEX_MODERNIZATION/frontend/admin; do
+            cd "$GITHUB_WORKSPACE/$d"
+            if [ -f package-lock.json ]; then npm ci; else npm install --package-lock=false; fi
+            npm run verify
+            npm run build
+          done
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.11.1'}
+      - name: AndroidX release gate
+        run: |
+          cd prepared/02_App_Android_ELITEX
+          printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n' >> gradle.properties
+          gradle assembleRelease bundleRelease
+      - name: Produce closure evidence
+        run: |
+          mkdir -p closure
+          cp prepared/ELITEX_OVERLAY_MANIFEST.json closure/
+          find prepared/00_framework_modern -path '*/target/*.jar' -type f -exec cp {} closure/ \;
+          find prepared/02_App_Android_ELITEX/app/build/outputs -type f -exec cp {} closure/ \;
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          rows=[]
+          for p in sorted(Path('closure').glob('*')):
+            if p.is_file(): rows.append({'name':p.name,'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
+          Path('closure/ELITEX_FINAL_CLOSURE_GATE.json').write_text(json.dumps({'gate':'PASS','artifacts':rows},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ELITEX_FINAL_CLOSURE
+          if-no-files-found: error
+          retention-days: 14
+          path: closure/**
