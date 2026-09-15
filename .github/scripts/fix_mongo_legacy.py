@@ -3,19 +3,23 @@ import re
 import xml.etree.ElementTree as ET
 root=Path('prepared/00_framework_modern')
 ns='http://maven.apache.org/POM/4.0.0'; N={'m':ns}; ET.register_namespace('',ns)
-# The modern reactor is Spring Boot 4.1; use Druid's matching Jakarta-native Boot 4 starter.
 for pom in root.rglob('pom.xml'):
     tree=ET.parse(pom); pr=tree.getroot(); changed=False
     for d in pr.findall('.//m:dependencies/m:dependency',N):
         if d.findtext('m:groupId',default='',namespaces=N)=='com.alibaba' and d.findtext('m:artifactId',default='',namespaces=N) in ('druid','druid-spring-boot-starter','druid-spring-boot-3-starter'):
-            d.find('m:artifactId',N).text='druid-spring-boot-4-starter'
-            v=d.find('m:version',N)
+            d.find('m:artifactId',N).text='druid-spring-boot-4-starter'; v=d.find('m:version',N)
             if v is None: v=ET.SubElement(d,f'{{{ns}}}version')
             v.text='1.2.28'; changed=True
     if changed: tree.write(pom,encoding='utf-8',xml_declaration=True)
+# Manual legacy Druid servlet/filter beans are javax-based. Boot 4 starter provides the same
+# stat-view-servlet and web-stat-filter capabilities through Jakarta-native auto-configuration
+# and the existing spring.datasource.druid.* resource properties.
+for cfg in root.rglob('DruidConfig.java'):
+    s=cfg.read_text(encoding='utf-8',errors='ignore')
+    if 'com.alibaba.druid.support.http.StatViewServlet' in s or 'com.alibaba.druid.support.http.WebStatFilter' in s:
+        cfg.rename(cfg.with_suffix('.java.boot2-legacy'))
 p=root/'core/src/main/java/com/bizzan/bitrade/util/Decimal128ToBigDecimalConverter.java'
-if p.exists():
-    s=p.read_text(encoding='utf-8',errors='ignore').replace('import com.mongodb.Mongo;\n',''); p.write_text(s,encoding='utf-8')
+if p.exists(): p.write_text(p.read_text(encoding='utf-8',errors='ignore').replace('import com.mongodb.Mongo;\n',''),encoding='utf-8')
 mc=root/'admin/src/main/java/com/bizzan/bitrade/config/MongoConfig.java'
 if mc.exists():
     s=mc.read_text(encoding='utf-8',errors='ignore')
@@ -33,8 +37,7 @@ for module in ('chat','market'):
     if ws.exists():
         s=ws.read_text(encoding='utf-8',errors='ignore').replace('import org.springframework.web.socket.config.annotation.AbstractWebSocketMessageBrokerConfigurer;', 'import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;').replace('extends AbstractWebSocketMessageBrokerConfigurer', 'implements WebSocketMessageBrokerConfigurer'); ws.write_text(s,encoding='utf-8')
 consumer=root/'market/src/main/java/com/bizzan/bitrade/consumer/DataDictionarySaveUpdateConsumer.java'
-if consumer.exists():
-    s=consumer.read_text(encoding='utf-8',errors='ignore').replace('group = ', 'groupId = '); consumer.write_text(s,encoding='utf-8')
+if consumer.exists(): consumer.write_text(consumer.read_text(encoding='utf-8',errors='ignore').replace('group = ', 'groupId = '),encoding='utf-8')
 push=root/'market/src/main/java/com/bizzan/bitrade/job/ExchangePushJob.java'
 if push.exists():
     lines=[]
