@@ -41,6 +41,13 @@ jobs:
             for d in r.findall('.//m:dependencies/m:dependency',N):
               g=d.find('m:groupId',N); a=d.find('m:artifactId',N); v=d.find('m:version',N); key=((g.text or '').strip() if g is not None else '',(a.text or '').strip() if a is not None else '')
               if key in versions and v is None: ET.SubElement(d,f'{{{ns}}}version').text=versions[key]; changed=True
+              sp=d.find('m:systemPath',N)
+              if sp is not None and sp.text and re.match(r'^[A-Za-z]:/',sp.text):
+                jar=Path(sp.text).name
+                candidates=list(root.rglob(jar))
+                if not candidates: raise SystemExit(f'missing system jar {jar}')
+                rel=Path(candidates[0]).resolve()
+                sp.text=str(rel); changed=True
             if changed: tree.write(p,encoding='utf-8',xml_declaration=True)
           for p in root.rglob('*.java'):
             s=p.read_text(encoding='utf-8',errors='ignore'); n=s.replace('org.hibernate.validator.constraints.NotBlank','javax.validation.constraints.NotBlank').replace('org.hibernate.validator.constraints.NotEmpty','javax.validation.constraints.NotEmpty').replace('import sun.misc.BASE64Encoder;','import java.util.Base64;').replace('import com.mongodb.Mongo;\n',''); n=re.sub(r'new BASE64Encoder\(\)\.encode\(([^;]+)\)',r'Base64.getEncoder().encodeToString(\1)',n)
@@ -53,15 +60,10 @@ jobs:
           ap=root/'core/src/main/java/com/bizzan/bitrade/constant/AdminModule.java'
           if ap.exists():
             s=ap.read_text(encoding='utf-8').replace('@AllArgsConstructor','').replace('@Getter','')
-            # Remove any previously misplaced generated members before imports/type declaration.
             s=re.sub(r'\n\s*private final String cnName;\s*\n\s*AdminModule\(String cnName\) \{ this\.cnName = cnName; \}\s*\n\s*public String getCnName\(\) \{ return cnName; \}\s*\n','\n',s)
-            m=re.search(r'enum\s+AdminModule[^\{]*\{',s)
-            if not m: raise SystemExit('AdminModule enum declaration missing')
-            semi=s.find(';',m.end())
-            if semi<0: raise SystemExit('AdminModule constants terminator missing')
+            m=re.search(r'enum\s+AdminModule[^\{]*\{',s); semi=s.find(';',m.end())
             members='\n    private final String cnName;\n    AdminModule(String cnName) { this.cnName = cnName; }\n    public String getCnName() { return cnName; }\n'
-            s=s[:semi+1]+members+s[semi+1:]
-            ap.write_text(s,encoding='utf-8')
+            s=s[:semi+1]+members+s[semi+1:]; ap.write_text(s,encoding='utf-8')
           PY
       - uses: actions/setup-java@v5
         with: {distribution: temurin, java-version: '21', cache: maven}
@@ -77,8 +79,17 @@ jobs:
       - run: tar -xJf prepared-source.tar.xz
       - uses: actions/setup-node@v4
         with: {node-version: '20'}
-      - run: |
+      - name: Fix Vite root URL handling and build
+        run: |
           set -e
+          python3 - <<'PY'
+          from pathlib import Path
+          for p in [Path('prepared/05_Web_Front/index.html'),Path('prepared/04_Web_Admin/index.html')]:
+            if p.exists():
+              s=p.read_text(encoding='utf-8-sig')
+              s=s.replace('href="/" rel="canonical"','href="https://elitex.local/" rel="canonical"')
+              p.write_text(s,encoding='utf-8')
+          PY
           for d in prepared/ELITEX_MODERNIZATION/frontend/user prepared/ELITEX_MODERNIZATION/frontend/admin; do cd "$GITHUB_WORKSPACE/$d"; npm install --legacy-peer-deps --package-lock=false; npm run verify; npm run build; done
       - uses: actions/upload-artifact@v4
         with: {name: modern-web-dist, if-no-files-found: error, path: 'prepared/{05_Web_Front,04_Web_Admin}/dist-modern/**'}
@@ -97,7 +108,6 @@ jobs:
           set -e
           export ANDROID_HOME=/usr/local/lib/android/sdk
           export ANDROID_SDK_ROOT=$ANDROID_HOME
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           cd prepared/02_App_Android_ELITEX
           printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n' >> gradle.properties
           gradle assembleRelease bundleRelease
@@ -110,8 +120,18 @@ jobs:
       - uses: actions/download-artifact@v4
         with: {name: prepared-source}
       - run: tar -xJf prepared-source.tar.xz
-      - name: Build real iOS device archive
-        run: xcodebuild -project prepared/03_APP_IOS_ELITEX/ELITEX.xcodeproj -scheme ELITEX -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/ELITEX.xcarchive" archive CODE_SIGNING_ALLOWED=NO SDKROOT=iphoneos SUPPORTED_PLATFORMS=iphoneos TARGETED_DEVICE_FAMILY='1,2'
+      - name: Normalize iOS target platform and archive
+        run: |
+          set -e
+          PBX=prepared/03_APP_IOS_ELITEX/ELITEX.xcodeproj/project.pbxproj
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('prepared/03_APP_IOS_ELITEX/ELITEX.xcodeproj/project.pbxproj')
+          s=p.read_text()
+          s=s.replace('IPHONEOS_DEPLOYMENT_TARGET = 16.0;','SDKROOT = iphoneos; SUPPORTED_PLATFORMS = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0;')
+          p.write_text(s)
+          PY
+          xcodebuild -project prepared/03_APP_IOS_ELITEX/ELITEX.xcodeproj -scheme ELITEX -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/ELITEX.xcarchive" archive CODE_SIGNING_ALLOWED=NO
       - uses: actions/upload-artifact@v4
         with: {name: ios-unsigned-xcarchive, path: '${{ runner.temp }}/ELITEX.xcarchive', if-no-files-found: error}
   windows-desktop:
@@ -138,7 +158,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import os,json
-          d={k:os.environ[k] for k in ['SOURCE','BACKEND','WEB','ANDROID','IOS','WINDOWS']}; d['final_build_gate']='PASS' if all(v=='success' for v in d.values()) else 'FAIL'; open('ELITEX_BUILD_GATE.json','w').write(json.dumps(d,indent=2)); assert d['final_build_gate']=='PASS'
+          d={k:os.environ[k] for k in ['SOURCE','BACKEND','WEB','ANDROID','IOS','WINDOWS']}; d['final_build_gate']='PASS' if all(v=='success' for v in d.values()) else 'FAIL'; open('ELITEX_BUILD_GATE.json','w').write(json.dumps(d,indent=2)); print(json.dumps(d,indent=2)); assert d['final_build_gate']=='PASS'
           PY
       - uses: actions/upload-artifact@v4
         if: always()
