@@ -20,7 +20,6 @@ present={(d.findtext('m:groupId',default='',namespaces=N),d.findtext('m:artifact
 if ('org.mongodb','mongo-java-driver') not in present:
     d=ET.SubElement(deps,f'{{{ns}}}dependency'); ET.SubElement(d,f'{{{ns}}}groupId').text='org.mongodb'; ET.SubElement(d,f'{{{ns}}}artifactId').text='mongo-java-driver'; ET.SubElement(d,f'{{{ns}}}version').text='3.12.14'
 t.write(ap,encoding='utf-8',xml_declaration=True)
-# Spring 6+ removed AbstractWebSocketMessageBrokerConfigurer; migrate retained configs without changing behavior.
 for module in ('chat','market'):
     ws=root/module/'src/main/java/com/bizzan/bitrade/config/WebSocketConfig.java'
     if ws.exists():
@@ -28,15 +27,19 @@ for module in ('chat','market'):
         s=s.replace('import org.springframework.web.socket.config.annotation.AbstractWebSocketMessageBrokerConfigurer;', 'import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;')
         s=s.replace('extends AbstractWebSocketMessageBrokerConfigurer', 'implements WebSocketMessageBrokerConfigurer')
         ws.write_text(s,encoding='utf-8')
-# Spring Kafka renamed the listener group attribute to groupId.
 consumer=root/'market/src/main/java/com/bizzan/bitrade/consumer/DataDictionarySaveUpdateConsumer.java'
 if consumer.exists():
-    s=consumer.read_text(encoding='utf-8',errors='ignore')
-    s=s.replace('group = ', 'groupId = ')
+    s=consumer.read_text(encoding='utf-8',errors='ignore').replace('group = ', 'groupId = ')
     consumer.write_text(s,encoding='utf-8')
-# New Spring Messaging overloads make convertAndSend(destination, null) ambiguous.
+# Spring Messaging has overlapping two-argument overloads. Explicitly type payloads as Object.
 push=root/'market/src/main/java/com/bizzan/bitrade/job/ExchangePushJob.java'
 if push.exists():
-    s=push.read_text(encoding='utf-8',errors='ignore')
-    s=re.sub(r'(\.convertAndSend\([^,\n]+,)\s*null(\s*\))', r'\1 (Object) null\2', s)
-    push.write_text(s,encoding='utf-8')
+    lines=[]
+    for line in push.read_text(encoding='utf-8',errors='ignore').splitlines(True):
+        if '.convertAndSend(' in line and '(Object)' not in line:
+            pos=line.find('.convertAndSend(')
+            comma=line.find(',', pos)
+            if comma >= 0:
+                line=line[:comma+1]+' (Object) '+line[comma+1:].lstrip()
+        lines.append(line)
+    push.write_text(''.join(lines),encoding='utf-8')
