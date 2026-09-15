@@ -25,11 +25,11 @@ jobs:
           tar -xJf prepared-source.tar.xz
           test -f prepared/00_framework_modern/pom.xml
           test -f prepared/ELITEX_OVERLAY_MANIFEST.json
-      - name: Normalize modern Maven dependency management without removing modules
+      - name: Normalize and migrate modern Maven source for Java 21
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import xml.etree.ElementTree as ET
+          import re, xml.etree.ElementTree as ET
           root=Path('prepared/00_framework_modern')
           versions={
             ('org.elasticsearch','elasticsearch'):'6.2.4',
@@ -52,6 +52,42 @@ jobs:
               if sp is not None and sp.text and 'E:/10_Exchange/src/BizzanExchange_framework/jar/spark-core-2.6.0.jar' in sp.text:
                 sp.text='${project.basedir}/../jar/spark-core-2.6.0.jar'; changed=True
             if changed: tree.write(p,encoding='utf-8',xml_declaration=True)
+
+          # Hibernate Validator 8 no longer exposes legacy org.hibernate.validator.constraints aliases.
+          for p in root.rglob('*.java'):
+            s=p.read_text(encoding='utf-8',errors='ignore')
+            n=s.replace('org.hibernate.validator.constraints.NotBlank','javax.validation.constraints.NotBlank')
+            n=n.replace('org.hibernate.validator.constraints.NotEmpty','javax.validation.constraints.NotEmpty')
+            # Java 9+ removed sun.misc.BASE64Encoder; use supported JDK Base64.
+            n=n.replace('import sun.misc.BASE64Encoder;','import java.util.Base64;')
+            n=re.sub(r'new BASE64Encoder\(\)\.encode\(([^;]+)\)', r'Base64.getEncoder().encodeToString(\1)', n)
+            # Obsolete Mongo marker import is unused by the converter and absent in modern driver.
+            n=n.replace('import com.mongodb.Mongo;\n','')
+            if n != s: p.write_text(n,encoding='utf-8')
+
+          # Add explicit compile dependencies required by retained provider/legacy client code.
+          cp=root/'core'/'pom.xml'; tree=ET.parse(cp); r=tree.getroot(); deps=r.find('m:dependencies',N)
+          existing=set()
+          for d in deps.findall('m:dependency',N):
+            g=d.find('m:groupId',N); a=d.find('m:artifactId',N)
+            existing.add(((g.text or '').strip() if g is not None else '',(a.text or '').strip() if a is not None else ''))
+          for g,a,v in [('org.dom4j','dom4j','2.1.4'),('org.apache.httpcomponents','httpcore','4.4.16')]:
+            if (g,a) not in existing:
+              d=ET.SubElement(deps,f'{{{ns}}}dependency')
+              ET.SubElement(d,f'{{{ns}}}groupId').text=g; ET.SubElement(d,f'{{{ns}}}artifactId').text=a; ET.SubElement(d,f'{{{ns}}}version').text=v
+          tree.write(cp,encoding='utf-8',xml_declaration=True)
+
+          # Lombok-generated enum constructor is unreliable in the legacy annotation pipeline; materialize it.
+          ap=root/'core'/'src/main/java/com/bizzan/bitrade/constant/AdminModule.java'
+          if ap.exists():
+            s=ap.read_text(encoding='utf-8')
+            if 'AdminModule(String' not in s:
+              idx=s.rfind('}')
+              field='\n    private final String cnName;\n    AdminModule(String cnName) { this.cnName = cnName; }\n    public String getCnName() { return cnName; }\n'
+              # Remove Lombok constructor/getter annotations if present to avoid duplicate generation.
+              s=s.replace('@AllArgsConstructor','').replace('@Getter','')
+              s=s[:idx]+field+s[idx:]
+              ap.write_text(s,encoding='utf-8')
           PY
       - uses: actions/setup-java@v5
         with: {distribution: temurin, java-version: '21', cache: maven}
