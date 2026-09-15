@@ -2,6 +2,17 @@ from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 root=Path('prepared/00_framework_modern')
+ns='http://maven.apache.org/POM/4.0.0'; N={'m':ns}; ET.register_namespace('',ns)
+# Replace legacy javax Druid dependency with the Spring Boot 3/Jakarta integration everywhere it is retained.
+for pom in root.rglob('pom.xml'):
+    tree=ET.parse(pom); pr=tree.getroot(); changed=False
+    for d in pr.findall('.//m:dependencies/m:dependency',N):
+        if d.findtext('m:groupId',default='',namespaces=N)=='com.alibaba' and d.findtext('m:artifactId',default='',namespaces=N)=='druid':
+            a=d.find('m:artifactId',N); a.text='druid-spring-boot-3-starter'
+            v=d.find('m:version',N)
+            if v is None: v=ET.SubElement(d,f'{{{ns}}}version')
+            v.text='1.2.23'; changed=True
+    if changed: tree.write(pom,encoding='utf-8',xml_declaration=True)
 p=root/'core/src/main/java/com/bizzan/bitrade/util/Decimal128ToBigDecimalConverter.java'
 if p.exists():
     s=p.read_text(encoding='utf-8',errors='ignore').replace('import com.mongodb.Mongo;\n',''); p.write_text(s,encoding='utf-8')
@@ -10,7 +21,6 @@ if mc.exists():
     s=mc.read_text(encoding='utf-8',errors='ignore')
     if 'import com.mongodb.Mongo;' not in s: s=s.replace('import com.mongodb.MongoClient;','import com.mongodb.Mongo;\nimport com.mongodb.MongoClient;')
     mc.write_text(s,encoding='utf-8')
-ns='http://maven.apache.org/POM/4.0.0'; N={'m':ns}; ET.register_namespace('',ns)
 ap=root/'admin/pom.xml'; t=ET.parse(ap); r=t.getroot(); deps=r.find('m:dependencies',N)
 for d in list(deps.findall('m:dependency',N)):
     if d.findtext('m:groupId',default='',namespaces=N)=='org.mongodb' and d.findtext('m:artifactId',default='',namespaces=N)=='mongodb-driver-legacy': deps.remove(d)
@@ -38,8 +48,6 @@ for cfg in root.rglob('ApplicationConfig.java'):
     s=cfg.read_text(encoding='utf-8',errors='ignore'); s=re.sub(r'\s*super\.addResourceHandlers\([^;]+\);', '', s); s=re.sub(r'\s*super\.addFormatters\([^;]+\);', '', s); s=re.sub(r'\s*super\.addInterceptors\([^;]+\);', '', s); cfg.write_text(s,encoding='utf-8')
 for cfg in root.rglob('RedisCacheConfig.java'):
     s=cfg.read_text(encoding='utf-8',errors='ignore'); s=re.sub(r'RedisCacheManager\s+cacheManager\s*=\s*new\s+RedisCacheManager\(redisTemplate\)\s*;', 'RedisCacheManager cacheManager = RedisCacheManager.create(redisTemplate.getConnectionFactory());', s); s=re.sub(r'\s*cacheManager\.setDefaultExpiration\([^;]+\);', '', s); cfg.write_text(s,encoding='utf-8')
-# Tomcat servlet4preview namespace disappeared years ago; use the Jakarta Servlet API used by Spring 6/Boot 4.
 for java in root.rglob('*.java'):
-    s=java.read_text(encoding='utf-8',errors='ignore')
-    n=s.replace('org.apache.catalina.servlet4preview.http.HttpServletRequest','jakarta.servlet.http.HttpServletRequest').replace('org.apache.catalina.servlet4preview.http.HttpServletResponse','jakarta.servlet.http.HttpServletResponse')
+    s=java.read_text(encoding='utf-8',errors='ignore'); n=s.replace('org.apache.catalina.servlet4preview.http.HttpServletRequest','jakarta.servlet.http.HttpServletRequest').replace('org.apache.catalina.servlet4preview.http.HttpServletResponse','jakarta.servlet.http.HttpServletResponse')
     if n!=s: java.write_text(n,encoding='utf-8')
