@@ -26,45 +26,16 @@ jobs:
           test -f prepared/00_framework_modern/pom.xml
           test -f prepared/ELITEX_OVERLAY_MANIFEST.json
       - name: Normalize and migrate modern Maven source for Java 21
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re, xml.etree.ElementTree as ET
-          root=Path('prepared/00_framework_modern')
-          versions={('org.elasticsearch','elasticsearch'):'6.2.4',('org.springframework.session','spring-session'):'1.3.5.RELEASE',('mysql','mysql-connector-java'):'8.0.11',('ch.qos.logback','logback-core'):'1.2.13',('ch.qos.logback','logback-classic'):'1.2.13',('org.slf4j','slf4j-api'):'1.7.36',('io.reactivex','rxjava'):'1.3.8'}
-          ns='http://maven.apache.org/POM/4.0.0'; N={'m':ns}; ET.register_namespace('',ns)
-          for p in root.rglob('pom.xml'):
-            tree=ET.parse(p); r=tree.getroot(); changed=False
-            for dep in r.findall('.//m:dependencies/m:dependency',N):
-              g=dep.find('m:groupId',N); a=dep.find('m:artifactId',N); v=dep.find('m:version',N)
-              key=((g.text or '').strip() if g is not None else '',(a.text or '').strip() if a is not None else '')
-              if key in versions and v is None: v=ET.SubElement(dep,f'{{{ns}}}version'); v.text=versions[key]; changed=True
-              sp=dep.find('m:systemPath',N)
-              if sp is not None and sp.text and 'E:/10_Exchange/src/BizzanExchange_framework/jar/spark-core-2.6.0.jar' in sp.text: sp.text='${project.basedir}/../jar/spark-core-2.6.0.jar'; changed=True
-            if changed: tree.write(p,encoding='utf-8',xml_declaration=True)
-          for p in root.rglob('*.java'):
-            s=p.read_text(encoding='utf-8',errors='ignore'); n=s.replace('org.hibernate.validator.constraints.NotBlank','javax.validation.constraints.NotBlank').replace('org.hibernate.validator.constraints.NotEmpty','javax.validation.constraints.NotEmpty').replace('import sun.misc.BASE64Encoder;','import java.util.Base64;').replace('import com.mongodb.Mongo;\n','')
-            n=re.sub(r'new BASE64Encoder\(\)\.encode\(([^;]+)\)',r'Base64.getEncoder().encodeToString(\1)',n)
-            if n!=s:p.write_text(n,encoding='utf-8')
-          cp=root/'core/pom.xml'; tree=ET.parse(cp); r=tree.getroot(); deps=r.find('m:dependencies',N)
-          existing={(d.find('m:groupId',N).text,d.find('m:artifactId',N).text) for d in deps.findall('m:dependency',N) if d.find('m:groupId',N) is not None and d.find('m:artifactId',N) is not None}
-          for g,a,v in [('org.dom4j','dom4j','2.1.4'),('org.apache.httpcomponents','httpcore','4.4.16')]:
-            if (g,a) not in existing:
-              d=ET.SubElement(deps,f'{{{ns}}}dependency'); ET.SubElement(d,f'{{{ns}}}groupId').text=g; ET.SubElement(d,f'{{{ns}}}artifactId').text=a; ET.SubElement(d,f'{{{ns}}}version').text=v
-          tree.write(cp,encoding='utf-8',xml_declaration=True)
-          ap=root/'core/src/main/java/com/bizzan/bitrade/constant/AdminModule.java'
-          if ap.exists():
-            s=ap.read_text(encoding='utf-8').replace('@AllArgsConstructor','').replace('@Getter','')
-            if 'AdminModule(String cnName)' not in s:
-              # Insert fields/constructor immediately after enum constants terminator, never outside enum body.
-              semi=s.find(';')
-              if semi < 0: raise SystemExit('AdminModule enum terminator not found')
-              members='\n    private final String cnName;\n    AdminModule(String cnName) { this.cnName = cnName; }\n    public String getCnName() { return cnName; }\n'
-              s=s[:semi+1]+members+s[semi+1:]
-            ap.write_text(s,encoding='utf-8')
-          PY
+        run: python3 .github/scripts/normalize_final.py
       - uses: actions/setup-java@v5
         with: {distribution: temurin, java-version: '21', cache: maven}
+      - name: Delombok retained legacy sources
+        run: |
+          mvn -q dependency:get -Dartifact=org.projectlombok:lombok:1.18.40
+          java -jar "$HOME/.m2/repository/org/projectlombok/lombok/1.18.40/lombok-1.18.40.jar" delombok prepared/00_framework_modern/core/src/main/java -d /tmp/core-delombok
+          rm -rf prepared/00_framework_modern/core/src/main/java
+          mkdir -p prepared/00_framework_modern/core/src/main
+          mv /tmp/core-delombok prepared/00_framework_modern/core/src/main/java
       - name: Modern backend compile/test gate
         run: mvn -f prepared/00_framework_modern/pom.xml -DskipTests=false clean verify
       - uses: actions/setup-node@v4
