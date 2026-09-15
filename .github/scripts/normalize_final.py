@@ -42,8 +42,18 @@ for g,a,v in [('jakarta.persistence','jakarta.persistence-api','3.1.0'),('jakart
     if (g,a) not in existing:
         d=ET.SubElement(deps,f'{{{ns}}}dependency'); ET.SubElement(d,f'{{{ns}}}groupId').text=g; ET.SubElement(d,f'{{{ns}}}artifactId').text=a; ET.SubElement(d,f'{{{ns}}}version').text=v
 for p in root.rglob('*.java'):
-    s=p.read_text(encoding='utf-8',errors='ignore'); n=s.replace('javax.validation.constraints.NotBlank','jakarta.validation.constraints.NotBlank').replace('javax.validation.constraints.NotEmpty','jakarta.validation.constraints.NotEmpty').replace('org.hibernate.validator.constraints.NotBlank','jakarta.validation.constraints.NotBlank').replace('org.hibernate.validator.constraints.NotEmpty','jakarta.validation.constraints.NotEmpty').replace('import sun.misc.BASE64Encoder;','import java.util.Base64;').replace('import com.mongodb.Mongo;\n','').replace('import com.mongodb.Cursor;\n',''); n=re.sub(r'new BASE64Encoder\(\)\.encode\(([^;]+)\)',r'Base64.getEncoder().encodeToString(\1)',n)
+    s=p.read_text(encoding='utf-8',errors='ignore'); n=s.replace('javax.validation.constraints.NotBlank','jakarta.validation.constraints.NotBlank').replace('javax.validation.constraints.NotEmpty','jakarta.validation.constraints.NotEmpty').replace('org.hibernate.validator.constraints.NotBlank','jakarta.validation.constraints.NotBlank').replace('org.hibernate.validator.constraints.NotEmpty','jakarta.validation.constraints.NotEmpty').replace('import sun.misc.BASE64Encoder;','import java.util.Base64;').replace('import com.mongodb.Cursor;\n','').replace('import org.apache.shiro.util.Assert;','import org.springframework.util.Assert;').replace('import org.apache.shiro.util.ByteSource;','import org.apache.shiro.lang.util.ByteSource;')
+    n=re.sub(r'new BASE64Encoder\(\)\.encode\(([^;]+)\)',r'Base64.getEncoder().encodeToString(\1)',n)
+    if 'org.springframework.util.Base64Utils' in n:
+        n=n.replace('import org.springframework.util.Base64Utils;','import java.util.Base64;').replace('Base64Utils.encodeToString(', 'Base64.getEncoder().encodeToString(').replace('Base64Utils.decodeFromString(', 'Base64.getDecoder().decode(')
     if n!=s:p.write_text(n,encoding='utf-8')
+# MongoDB 4.x legacy compatibility API for retained MongoConfig.
+ap=root/'admin/pom.xml'; at=ET.parse(ap); ar=at.getroot(); adeps=ar.find('m:dependencies',N)
+if adeps is not None:
+    present={(d.findtext('m:groupId',default='',namespaces=N),d.findtext('m:artifactId',default='',namespaces=N)) for d in adeps.findall('m:dependency',N)}
+    if ('org.mongodb','mongodb-driver-legacy') not in present:
+        d=ET.SubElement(adeps,f'{{{ns}}}dependency'); ET.SubElement(d,f'{{{ns}}}groupId').text='org.mongodb'; ET.SubElement(d,f'{{{ns}}}artifactId').text='mongodb-driver-legacy'; ET.SubElement(d,f'{{{ns}}}version').text='4.11.5'
+    at.write(ap,encoding='utf-8',xml_declaration=True)
 for name in ['MemberInviteStasticDao.java','MemberInviteStasticRankDao.java']:
     p=next(root.rglob(name)); s=p.read_text(); s=s.replace(' findById(Long id)', ' findLegacyById(Long id)'); p.write_text(s)
 p=next(root.rglob('MemberInviteStasticService.java')); s=p.read_text().replace('memberInviteStasticDao.findById(id)','memberInviteStasticDao.findLegacyById(id)').replace('memberInviteStasticRankDao.findById(id)','memberInviteStasticRankDao.findLegacyById(id)'); p.write_text(s)
@@ -52,15 +62,10 @@ p=next(root.rglob('MongoBaseService.java')); s=p.read_text().replace('Sort.by(pa
 p=next(root.rglob('Criteria.java')); s=p.read_text().replace('new Sort.Order(f);','new Sort.Order(Sort.Direction.ASC, f);'); p.write_text(s)
 p=next(root.rglob('SmartHttpSessionStrategy.java')); s=p.read_text().replace('jakarta.servlet.http.HttpServletRequest','javax.servlet.http.HttpServletRequest').replace('jakarta.servlet.http.HttpServletResponse','javax.servlet.http.HttpServletResponse'); p.write_text(s)
 p=next(root.rglob('AliyunUtil.java')); s=p.read_text().replace('BASE64Encoder b64Encoder = new BASE64Encoder();\n            encodeStr = b64Encoder.encode(md5Bytes);','encodeStr = Base64.getEncoder().encodeToString(md5Bytes);').replace('(new BASE64Encoder()).encode(rawHmac)','Base64.getEncoder().encodeToString(rawHmac)'); p.write_text(s)
-# The retained prepared artifact contains one finance-controller line with literal double-backslashes
-# before quotes. Repair only that source instead of broad source rewriting.
 p=root/'admin/src/main/java/com/bizzan/bitrade/controller/finance/FinanceStatisticsController.java'
 if p.exists():
-    s=p.read_text(encoding='utf-8',errors='ignore')
-    lines=s.splitlines(True)
-    if len(lines) >= 115 and '\\\\' in lines[114]:
-        lines[114]=lines[114].replace('\\\\"','\\"')
-        s=''.join(lines)
+    s=p.read_text(encoding='utf-8',errors='ignore'); lines=s.splitlines(True)
+    if len(lines)>=115 and '\\\\' in lines[114]: lines[114]=lines[114].replace('\\\\"','\\"'); s=''.join(lines)
     p.write_text(s,encoding='utf-8')
 p=root/'core/src/test/java/com/bizzan/bitrade/test/BaseTest.java'
 if p.exists():
