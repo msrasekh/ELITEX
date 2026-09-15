@@ -47,34 +47,18 @@ for p in root.rglob('*.java'):
     if 'org.springframework.util.Base64Utils' in n:
         n=n.replace('import org.springframework.util.Base64Utils;','import java.util.Base64;').replace('Base64Utils.encodeToString(', 'Base64.getEncoder().encodeToString(').replace('Base64Utils.decodeFromString(', 'Base64.getDecoder().decode(')
     if n!=s:p.write_text(n,encoding='utf-8')
-# Spring Data Redis 3 / Spring 6 compatibility for retained admin cache config.
 p=root/'admin/src/main/java/com/bizzan/bitrade/config/RedisCacheConfig.java'
 if p.exists():
-    s=p.read_text(encoding='utf-8',errors='ignore')
-    s=re.sub(r'RedisCacheManager\s+cacheManager\s*=\s*new\s+RedisCacheManager\(redisTemplate\)\s*;', 'RedisCacheManager cacheManager = RedisCacheManager.create(redisTemplate.getConnectionFactory());', s)
-    s=re.sub(r'\s*cacheManager\.setDefaultExpiration\([^;]+\);', '', s)
-    p.write_text(s,encoding='utf-8')
-# Commons FileUpload 1.x accepts javax servlet requests; use content-type detection with Jakarta request.
+    s=p.read_text(encoding='utf-8',errors='ignore'); s=re.sub(r'RedisCacheManager\s+cacheManager\s*=\s*new\s+RedisCacheManager\(redisTemplate\)\s*;', 'RedisCacheManager cacheManager = RedisCacheManager.create(redisTemplate.getConnectionFactory());', s); s=re.sub(r'\s*cacheManager\.setDefaultExpiration\([^;]+\);', '', s); p.write_text(s,encoding='utf-8')
 p=root/'admin/src/main/java/com/bizzan/bitrade/controller/common/UploadController.java'
 if p.exists():
-    s=p.read_text(encoding='utf-8',errors='ignore')
-    s=s.replace('ServletFileUpload.isMultipartContent(request)', '(request.getContentType() != null && request.getContentType().toLowerCase().startsWith("multipart/"))')
-    p.write_text(s,encoding='utf-8')
-# Spring Data MongoDB removed the legacy single-object overload exposed by this retained repository signature.
+    s=p.read_text(encoding='utf-8',errors='ignore'); s=s.replace('ServletFileUpload.isMultipartContent(request)', '(request.getContentType() != null && request.getContentType().toLowerCase().startsWith("multipart/"))'); p.write_text(s,encoding='utf-8')
 p=root/'admin/src/main/java/com/bizzan/bitrade/job/MemberStatisticsJob.java'
 if p.exists():
-    s=p.read_text(encoding='utf-8',errors='ignore')
-    s=re.sub(r'(memberLogDao|memberLogRepository)\.save\(([^;]+)\);', r'\1.saveAll(java.util.Collections.singletonList(\2));', s)
-    p.write_text(s,encoding='utf-8')
-# WebMvcConfigurer default methods must not be invoked through super in the migrated configuration.
+    s=p.read_text(encoding='utf-8',errors='ignore'); s=re.sub(r'(memberLogDao|memberLogRepository)\.save\(([^;]+)\);', r'\1.save(java.util.Collections.singletonList(\2));', s); p.write_text(s,encoding='utf-8')
 p=root/'admin/src/main/java/com/bizzan/bitrade/config/ApplicationConfig.java'
 if p.exists():
-    s=p.read_text(encoding='utf-8',errors='ignore')
-    s=re.sub(r'\s*super\.addResourceHandlers\([^;]+\);', '', s)
-    s=re.sub(r'\s*super\.addFormatters\([^;]+\);', '', s)
-    s=re.sub(r'\s*super\.addInterceptors\([^;]+\);', '', s)
-    p.write_text(s,encoding='utf-8')
-# MongoDB 4.x legacy compatibility API for retained MongoConfig.
+    s=p.read_text(encoding='utf-8',errors='ignore'); s=re.sub(r'\s*super\.addResourceHandlers\([^;]+\);', '', s); s=re.sub(r'\s*super\.addFormatters\([^;]+\);', '', s); s=re.sub(r'\s*super\.addInterceptors\([^;]+\);', '', s); p.write_text(s,encoding='utf-8')
 ap=root/'admin/pom.xml'; at=ET.parse(ap); ar=at.getroot(); adeps=ar.find('m:dependencies',N)
 if adeps is not None:
     present={(d.findtext('m:groupId',default='',namespaces=N),d.findtext('m:artifactId',default='',namespaces=N)) for d in adeps.findall('m:dependency',N)}
