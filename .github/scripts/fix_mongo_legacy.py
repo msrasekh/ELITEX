@@ -11,13 +11,9 @@ for pom in root.rglob('pom.xml'):
             if v is None: v=ET.SubElement(d,f'{{{ns}}}version')
             v.text='1.2.28'; changed=True
     if changed: tree.write(pom,encoding='utf-8',xml_declaration=True)
-# Manual legacy Druid servlet/filter beans are javax-based. Boot 4 starter provides the same
-# stat-view-servlet and web-stat-filter capabilities through Jakarta-native auto-configuration
-# and the existing spring.datasource.druid.* resource properties.
 for cfg in root.rglob('DruidConfig.java'):
     s=cfg.read_text(encoding='utf-8',errors='ignore')
-    if 'com.alibaba.druid.support.http.StatViewServlet' in s or 'com.alibaba.druid.support.http.WebStatFilter' in s:
-        cfg.rename(cfg.with_suffix('.java.boot2-legacy'))
+    if 'com.alibaba.druid.support.http.StatViewServlet' in s or 'com.alibaba.druid.support.http.WebStatFilter' in s: cfg.rename(cfg.with_suffix('.java.boot2-legacy'))
 p=root/'core/src/main/java/com/bizzan/bitrade/util/Decimal128ToBigDecimalConverter.java'
 if p.exists(): p.write_text(p.read_text(encoding='utf-8',errors='ignore').replace('import com.mongodb.Mongo;\n',''),encoding='utf-8')
 mc=root/'admin/src/main/java/com/bizzan/bitrade/config/MongoConfig.java'
@@ -52,5 +48,7 @@ for cfg in root.rglob('ApplicationConfig.java'):
 for cfg in root.rglob('RedisCacheConfig.java'):
     s=cfg.read_text(encoding='utf-8',errors='ignore'); s=re.sub(r'RedisCacheManager\s+cacheManager\s*=\s*new\s+RedisCacheManager\(redisTemplate\)\s*;', 'RedisCacheManager cacheManager = RedisCacheManager.create(redisTemplate.getConnectionFactory());', s); s=re.sub(r'\s*cacheManager\.setDefaultExpiration\([^;]+\);', '', s); cfg.write_text(s,encoding='utf-8')
 for java in root.rglob('*.java'):
-    s=java.read_text(encoding='utf-8',errors='ignore'); n=s.replace('org.apache.catalina.servlet4preview.http.HttpServletRequest','jakarta.servlet.http.HttpServletRequest').replace('org.apache.catalina.servlet4preview.http.HttpServletResponse','jakarta.servlet.http.HttpServletResponse')
+    s=java.read_text(encoding='utf-8',errors='ignore')
+    n=s.replace('org.apache.catalina.servlet4preview.http.HttpServletRequest','jakarta.servlet.http.HttpServletRequest').replace('org.apache.catalina.servlet4preview.http.HttpServletResponse','jakarta.servlet.http.HttpServletResponse').replace('org.hibernate.validator.constraints.Email','jakarta.validation.constraints.Email').replace('org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration','org.springframework.boot.data.mongodb.autoconfigure.DataMongoAutoConfiguration').replace('MongoDataAutoConfiguration.class','DataMongoAutoConfiguration.class').replace('org.springframework.boot.autoconfigure.mongo.MongoAutoConfiguration','org.springframework.boot.mongodb.autoconfigure.MongoAutoConfiguration')
+    n=re.sub(r'^import com\.netflix\.discovery\.converters\.[^;]+;\s*$', '', n, flags=re.M)
     if n!=s: java.write_text(n,encoding='utf-8')
