@@ -3,15 +3,15 @@ import re
 import xml.etree.ElementTree as ET
 root=Path('prepared/00_framework_modern')
 ns='http://maven.apache.org/POM/4.0.0'; N={'m':ns}; ET.register_namespace('',ns)
-# Replace legacy javax Druid dependency with the Spring Boot 3/Jakarta integration everywhere it is retained.
+# The modern reactor is Spring Boot 4.1; use Druid's matching Jakarta-native Boot 4 starter.
 for pom in root.rglob('pom.xml'):
     tree=ET.parse(pom); pr=tree.getroot(); changed=False
     for d in pr.findall('.//m:dependencies/m:dependency',N):
-        if d.findtext('m:groupId',default='',namespaces=N)=='com.alibaba' and d.findtext('m:artifactId',default='',namespaces=N)=='druid':
-            a=d.find('m:artifactId',N); a.text='druid-spring-boot-3-starter'
+        if d.findtext('m:groupId',default='',namespaces=N)=='com.alibaba' and d.findtext('m:artifactId',default='',namespaces=N) in ('druid','druid-spring-boot-starter','druid-spring-boot-3-starter'):
+            d.find('m:artifactId',N).text='druid-spring-boot-4-starter'
             v=d.find('m:version',N)
             if v is None: v=ET.SubElement(d,f'{{{ns}}}version')
-            v.text='1.2.23'; changed=True
+            v.text='1.2.28'; changed=True
     if changed: tree.write(pom,encoding='utf-8',xml_declaration=True)
 p=root/'core/src/main/java/com/bizzan/bitrade/util/Decimal128ToBigDecimalConverter.java'
 if p.exists():
