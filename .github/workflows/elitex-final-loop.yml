@@ -1,0 +1,142 @@
+name: ELITEX Deterministic Final Loop
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover verified full source
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          curl -L --fail -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10362279302/zip" -o src.zip
+          unzip -q src.zip && tar -xJf prepared-source.tar.xz
+      - name: Normalize modern backend
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,xml.etree.ElementTree as ET
+          root=Path('prepared/00_framework_modern'); ns='http://maven.apache.org/POM/4.0.0'; N={'m':ns}; ET.register_namespace('',ns)
+          versions={('org.elasticsearch','elasticsearch'):'6.2.4',('org.springframework.session','spring-session'):'1.3.5.RELEASE',('mysql','mysql-connector-java'):'8.0.11',('ch.qos.logback','logback-core'):'1.2.13',('ch.qos.logback','logback-classic'):'1.2.13',('org.slf4j','slf4j-api'):'1.7.36',('io.reactivex','rxjava'):'1.3.8'}
+          for p in root.rglob('pom.xml'):
+            t=ET.parse(p); r=t.getroot(); ch=False
+            for d in r.findall('.//m:dependencies/m:dependency',N):
+              g=d.find('m:groupId',N); a=d.find('m:artifactId',N); v=d.find('m:version',N); key=((g.text or '').strip() if g is not None else '',(a.text or '').strip() if a is not None else '')
+              if key in versions and v is None: ET.SubElement(d,f'{{{ns}}}version').text=versions[key]; ch=True
+              sp=d.find('m:systemPath',N)
+              if sp is not None and sp.text and re.match(r'^[A-Za-z]:/',sp.text):
+                cand=list(root.rglob(Path(sp.text).name)); sp.text=str(cand[0].resolve()); ch=True
+              if key in [('com.querydsl','querydsl-apt'),('com.querydsl','querydsl-jpa')]:
+                c=d.find('m:classifier',N)
+                if c is not None: d.remove(c); ch=True
+            if ch:t.write(p,encoding='utf-8',xml_declaration=True)
+          cp=root/'core/pom.xml'; t=ET.parse(cp); r=t.getroot(); build=r.find('m:build',N); plugins=build.find('m:plugins',N)
+          for pl in list(plugins.findall('m:plugin',N)):
+            a=pl.find('m:artifactId',N)
+            if a is not None and a.text=='apt-maven-plugin': plugins.remove(pl)
+          deps=r.find('m:dependencies',N)
+          for g,a,v in [('javax.validation','validation-api','2.0.1.Final'),('org.dom4j','dom4j','2.1.4'),('org.apache.httpcomponents','httpcore','4.4.6')]:
+            d=ET.SubElement(deps,f'{{{ns}}}dependency'); ET.SubElement(d,f'{{{ns}}}groupId').text=g; ET.SubElement(d,f'{{{ns}}}artifactId').text=a; ET.SubElement(d,f'{{{ns}}}version').text=v
+          t.write(cp,encoding='utf-8',xml_declaration=True)
+          for p in root.rglob('*.java'):
+            s=p.read_text(encoding='utf-8',errors='ignore'); n=s.replace('org.hibernate.validator.constraints.NotBlank','javax.validation.constraints.NotBlank').replace('org.hibernate.validator.constraints.NotEmpty','javax.validation.constraints.NotEmpty').replace('import sun.misc.BASE64Encoder;','import java.util.Base64;').replace('import com.mongodb.Mongo;\n',''); n=re.sub(r'new BASE64Encoder\(\)\.encode\(([^;]+)\)',r'Base64.getEncoder().encodeToString(\1)',n)
+            if n!=s:p.write_text(n,encoding='utf-8')
+          PY
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - name: Backend verify
+        run: mvn -f prepared/00_framework_modern/pom.xml -DskipTests=false clean verify
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - name: Web verify and build
+        run: |
+          set -e
+          for pair in 'user:05_Web_Front' 'admin:04_Web_Admin'; do
+            d=${pair%%:*}; legacy=${pair##*:}; mod="$GITHUB_WORKSPACE/prepared/ELITEX_MODERNIZATION/frontend/$d"; root="$GITHUB_WORKSPACE/prepared/$legacy"
+            cd "$mod"; npm install --legacy-peer-deps --package-lock=false; npm install --no-save --legacy-peer-deps postcss autoprefixer
+            rm -rf "$root/node_modules"; ln -s "$mod/node_modules" "$root/node_modules"
+            python3 - "$root/index.html" <<'PY'
+          import sys
+          from pathlib import Path
+          p=Path(sys.argv[1]); s=p.read_text(encoding='utf-8-sig').replace('href="/" rel="canonical"','href="https://elitex.local/" rel="canonical"'); p.write_text(s)
+          PY
+            npm run verify; npm run build
+          done
+      - name: Collect Linux artifacts
+        run: |
+          mkdir -p release/backend release/web
+          find prepared/00_framework_modern -path '*/target/*.jar' -type f -exec cp {} release/backend/ \;
+          cp -R prepared/05_Web_Front/dist-modern release/web/user
+          cp -R prepared/04_Web_Admin/dist-modern release/web/admin
+      - uses: actions/upload-artifact@v4
+        with: {name: elitex-linux-release, path: release/**, if-no-files-found: error}
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover source
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: curl -L --fail -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10362279302/zip" -o src.zip && unzip -q src.zip && tar -xJf prepared-source.tar.xz
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '21'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.11.1'}
+      - run: cd prepared/02_App_Android_ELITEX && printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n' >> gradle.properties && gradle assembleRelease bundleRelease
+      - uses: actions/upload-artifact@v4
+        with: {name: android-release, path: 'prepared/02_App_Android_ELITEX/app/build/outputs/**', if-no-files-found: error}
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover source
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: curl -L --fail -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10362279302/zip" -o src.zip && unzip -q src.zip && tar -xJf prepared-source.tar.xz
+      - name: Archive iOS
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('prepared/03_APP_IOS_ELITEX/ELITEX.xcodeproj/project.pbxproj'); s=p.read_text().replace('IPHONEOS_DEPLOYMENT_TARGET = 16.0;','SDKROOT = iphoneos; SUPPORTED_PLATFORMS = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0;'); p.write_text(s)
+          PY
+          xcodebuild -project prepared/03_APP_IOS_ELITEX/ELITEX.xcodeproj -scheme ELITEX -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/ELITEX.xcarchive" archive CODE_SIGNING_ALLOWED=NO
+      - uses: actions/upload-artifact@v4
+        with: {name: ios-unsigned-xcarchive, path: '${{ runner.temp }}/ELITEX.xcarchive', if-no-files-found: error}
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover source
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept="application/vnd.github+json"} -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/10362279302/zip" -OutFile src.zip
+          Expand-Archive src.zip . -Force; tar -xJf prepared-source.tar.xz
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - shell: pwsh
+        run: python -m pip install pyinstaller; pyinstaller --noconfirm --clean --onefile --name ELITEX prepared/07_Desktop_ELITEX/launcher.py
+      - uses: actions/upload-artifact@v4
+        with: {name: windows-desktop, path: dist/ELITEX.exe, if-no-files-found: error}
+  bundle:
+    needs: [build,android,ios,windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {path: release}
+      - name: Manifest and bundle
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          r=Path('release'); rows=[]
+          for p in sorted(r.rglob('*')):
+            if p.is_file(): rows.append({'path':str(p.relative_to(r)),'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
+          (r/'ELITEX_BUILD_GATE.json').write_text(json.dumps({'final_build_gate':'PASS','commit':'${{ github.sha }}','artifacts':rows},indent=2))
+          PY
+          cd release && zip -r -9 ../ELITEX_FULL_RELEASE.zip . && cd .. && sha256sum ELITEX_FULL_RELEASE.zip > ELITEX_FULL_RELEASE.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with: {name: ELITEX_FULL_RELEASE, path: 'ELITEX_FULL_RELEASE.zip*', if-no-files-found: error, retention-days: 14}
