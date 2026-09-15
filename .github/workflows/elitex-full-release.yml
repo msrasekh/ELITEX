@@ -1,22 +1,18 @@
 name: ELITEX Full Release
-
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
   actions: read
-
 jobs:
   source-gate:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Recover canonical verified RC18 prepared source
-        env:
-          GH_TOKEN: ${{ github.token }}
+        env: {GH_TOKEN: '${{ github.token }}'}
         run: |
           set -euo pipefail
           curl -L --fail -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10362279302/zip" -o prepared-artifact.zip
@@ -24,10 +20,8 @@ jobs:
           test -f prepared-source.tar.xz
           tar -xJf prepared-source.tar.xz
           test -f prepared/ELITEX_OVERLAY_MANIFEST.json
-          test -f prepared/00_framework_modern/pom.xml
       - uses: actions/upload-artifact@v4
         with: {name: prepared-source, path: prepared-source.tar.xz, retention-days: 14}
-
   modern-backend:
     needs: source-gate
     runs-on: ubuntu-24.04
@@ -35,7 +29,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with: {name: prepared-source}
       - run: tar -xJf prepared-source.tar.xz
-      - name: Java 21 migration compatibility
+      - name: Java 21 compatibility migration
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -47,8 +41,6 @@ jobs:
             for d in r.findall('.//m:dependencies/m:dependency',N):
               g=d.find('m:groupId',N); a=d.find('m:artifactId',N); v=d.find('m:version',N); key=((g.text or '').strip() if g is not None else '',(a.text or '').strip() if a is not None else '')
               if key in versions and v is None: ET.SubElement(d,f'{{{ns}}}version').text=versions[key]; changed=True
-              sp=d.find('m:systemPath',N)
-              if sp is not None and sp.text and 'E:/10_Exchange/src/BizzanExchange_framework/jar/spark-core-2.6.0.jar' in sp.text: sp.text='${project.basedir}/../jar/spark-core-2.6.0.jar'; changed=True
             if changed: tree.write(p,encoding='utf-8',xml_declaration=True)
           for p in root.rglob('*.java'):
             s=p.read_text(encoding='utf-8',errors='ignore'); n=s.replace('org.hibernate.validator.constraints.NotBlank','javax.validation.constraints.NotBlank').replace('org.hibernate.validator.constraints.NotEmpty','javax.validation.constraints.NotEmpty').replace('import sun.misc.BASE64Encoder;','import java.util.Base64;').replace('import com.mongodb.Mongo;\n',''); n=re.sub(r'new BASE64Encoder\(\)\.encode\(([^;]+)\)',r'Base64.getEncoder().encodeToString(\1)',n)
@@ -61,8 +53,14 @@ jobs:
           ap=root/'core/src/main/java/com/bizzan/bitrade/constant/AdminModule.java'
           if ap.exists():
             s=ap.read_text(encoding='utf-8').replace('@AllArgsConstructor','').replace('@Getter','')
-            if 'AdminModule(String cnName)' not in s:
-              semi=s.find(';'); members='\n    private final String cnName;\n    AdminModule(String cnName) { this.cnName = cnName; }\n    public String getCnName() { return cnName; }\n'; s=s[:semi+1]+members+s[semi+1:]
+            # Remove any previously misplaced generated members before imports/type declaration.
+            s=re.sub(r'\n\s*private final String cnName;\s*\n\s*AdminModule\(String cnName\) \{ this\.cnName = cnName; \}\s*\n\s*public String getCnName\(\) \{ return cnName; \}\s*\n','\n',s)
+            m=re.search(r'enum\s+AdminModule[^\{]*\{',s)
+            if not m: raise SystemExit('AdminModule enum declaration missing')
+            semi=s.find(';',m.end())
+            if semi<0: raise SystemExit('AdminModule constants terminator missing')
+            members='\n    private final String cnName;\n    AdminModule(String cnName) { this.cnName = cnName; }\n    public String getCnName() { return cnName; }\n'
+            s=s[:semi+1]+members+s[semi+1:]
             ap.write_text(s,encoding='utf-8')
           PY
       - uses: actions/setup-java@v5
@@ -70,7 +68,6 @@ jobs:
       - run: mvn -f prepared/00_framework_modern/pom.xml -DskipTests=false clean verify
       - uses: actions/upload-artifact@v4
         with: {name: modern-java-artifacts, if-no-files-found: error, path: 'prepared/00_framework_modern/**/target/*.jar'}
-
   modern-web:
     needs: source-gate
     runs-on: ubuntu-24.04
@@ -82,10 +79,9 @@ jobs:
         with: {node-version: '20'}
       - run: |
           set -e
-          for d in prepared/ELITEX_MODERNIZATION/frontend/user prepared/ELITEX_MODERNIZATION/frontend/admin; do cd "$GITHUB_WORKSPACE/$d"; if [ -f package-lock.json ]; then npm ci; else npm install --package-lock=false; fi; npm run verify; npm run build; done
+          for d in prepared/ELITEX_MODERNIZATION/frontend/user prepared/ELITEX_MODERNIZATION/frontend/admin; do cd "$GITHUB_WORKSPACE/$d"; npm install --legacy-peer-deps --package-lock=false; npm run verify; npm run build; done
       - uses: actions/upload-artifact@v4
         with: {name: modern-web-dist, if-no-files-found: error, path: 'prepared/{05_Web_Front,04_Web_Admin}/dist-modern/**'}
-
   android:
     needs: source-gate
     runs-on: ubuntu-24.04
@@ -95,16 +91,18 @@ jobs:
       - run: tar -xJf prepared-source.tar.xz
       - uses: actions/setup-java@v5
         with: {distribution: temurin, java-version: '21'}
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with: {gradle-version: '8.11.1'}
       - run: |
+          set -e
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT=$ANDROID_HOME
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           cd prepared/02_App_Android_ELITEX
           printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n' >> gradle.properties
           gradle assembleRelease bundleRelease
       - uses: actions/upload-artifact@v4
         with: {name: android-release, if-no-files-found: error, path: 'prepared/02_App_Android_ELITEX/app/build/outputs/**'}
-
   ios:
     needs: source-gate
     runs-on: macos-15
@@ -112,10 +110,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with: {name: prepared-source}
       - run: tar -xJf prepared-source.tar.xz
-      - run: xcodebuild -project prepared/03_APP_IOS_ELITEX/ELITEX.xcodeproj -scheme ELITEX -configuration Release -archivePath "$RUNNER_TEMP/ELITEX.xcarchive" archive CODE_SIGNING_ALLOWED=NO
+      - name: Build real iOS device archive
+        run: xcodebuild -project prepared/03_APP_IOS_ELITEX/ELITEX.xcodeproj -scheme ELITEX -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/ELITEX.xcarchive" archive CODE_SIGNING_ALLOWED=NO SDKROOT=iphoneos SUPPORTED_PLATFORMS=iphoneos TARGETED_DEVICE_FAMILY='1,2'
       - uses: actions/upload-artifact@v4
         with: {name: ios-unsigned-xcarchive, path: '${{ runner.temp }}/ELITEX.xcarchive', if-no-files-found: error}
-
   windows-desktop:
     needs: source-gate
     runs-on: windows-2025
@@ -130,7 +128,6 @@ jobs:
         run: python -m pip install --upgrade pip pyinstaller; pyinstaller --noconfirm --clean --onefile --name ELITEX prepared/07_Desktop_ELITEX/launcher.py
       - uses: actions/upload-artifact@v4
         with: {name: windows-desktop, path: dist/ELITEX.exe, if-no-files-found: error}
-
   final-gate:
     if: always()
     needs: [source-gate, modern-backend, modern-web, android, ios, windows-desktop]
@@ -141,12 +138,11 @@ jobs:
         run: |
           python3 - <<'PY'
           import os,json
-          d={k:os.environ[k] for k in ['SOURCE','BACKEND','WEB','ANDROID','IOS','WINDOWS']}; d['final_build_gate']='PASS' if all(v=='success' for v in d.values()) else 'FAIL'; open('ELITEX_BUILD_GATE.json','w').write(json.dumps(d,indent=2)); print(d); assert d['final_build_gate']=='PASS'
+          d={k:os.environ[k] for k in ['SOURCE','BACKEND','WEB','ANDROID','IOS','WINDOWS']}; d['final_build_gate']='PASS' if all(v=='success' for v in d.values()) else 'FAIL'; open('ELITEX_BUILD_GATE.json','w').write(json.dumps(d,indent=2)); assert d['final_build_gate']=='PASS'
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with: {name: elitex-build-gate, path: ELITEX_BUILD_GATE.json, retention-days: 14}
-
   release-bundle:
     needs: [source-gate, modern-backend, modern-web, android, ios, windows-desktop, final-gate]
     runs-on: ubuntu-24.04
