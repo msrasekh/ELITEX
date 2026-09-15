@@ -23,23 +23,30 @@ t.write(ap,encoding='utf-8',xml_declaration=True)
 for module in ('chat','market'):
     ws=root/module/'src/main/java/com/bizzan/bitrade/config/WebSocketConfig.java'
     if ws.exists():
-        s=ws.read_text(encoding='utf-8',errors='ignore')
-        s=s.replace('import org.springframework.web.socket.config.annotation.AbstractWebSocketMessageBrokerConfigurer;', 'import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;')
-        s=s.replace('extends AbstractWebSocketMessageBrokerConfigurer', 'implements WebSocketMessageBrokerConfigurer')
+        s=ws.read_text(encoding='utf-8',errors='ignore').replace('import org.springframework.web.socket.config.annotation.AbstractWebSocketMessageBrokerConfigurer;', 'import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;').replace('extends AbstractWebSocketMessageBrokerConfigurer', 'implements WebSocketMessageBrokerConfigurer')
         ws.write_text(s,encoding='utf-8')
 consumer=root/'market/src/main/java/com/bizzan/bitrade/consumer/DataDictionarySaveUpdateConsumer.java'
 if consumer.exists():
-    s=consumer.read_text(encoding='utf-8',errors='ignore').replace('group = ', 'groupId = ')
-    consumer.write_text(s,encoding='utf-8')
-# Spring Messaging has overlapping two-argument overloads. Explicitly type payloads as Object.
+    s=consumer.read_text(encoding='utf-8',errors='ignore').replace('group = ', 'groupId = '); consumer.write_text(s,encoding='utf-8')
 push=root/'market/src/main/java/com/bizzan/bitrade/job/ExchangePushJob.java'
 if push.exists():
     lines=[]
     for line in push.read_text(encoding='utf-8',errors='ignore').splitlines(True):
         if '.convertAndSend(' in line and '(Object)' not in line:
-            pos=line.find('.convertAndSend(')
-            comma=line.find(',', pos)
-            if comma >= 0:
-                line=line[:comma+1]+' (Object) '+line[comma+1:].lstrip()
+            pos=line.find('.convertAndSend('); comma=line.find(',', pos)
+            if comma >= 0: line=line[:comma+1]+' (Object) '+line[comma+1:].lstrip()
         lines.append(line)
     push.write_text(''.join(lines),encoding='utf-8')
+# Apply Spring 6 WebMvcConfigurer compatibility to every retained API module.
+for cfg in root.rglob('ApplicationConfig.java'):
+    s=cfg.read_text(encoding='utf-8',errors='ignore')
+    s=re.sub(r'\s*super\.addResourceHandlers\([^;]+\);', '', s)
+    s=re.sub(r'\s*super\.addFormatters\([^;]+\);', '', s)
+    s=re.sub(r'\s*super\.addInterceptors\([^;]+\);', '', s)
+    cfg.write_text(s,encoding='utf-8')
+# Spring Data Redis 3+ uses the connection factory builder instead of RedisTemplate constructor.
+for cfg in root.rglob('RedisCacheConfig.java'):
+    s=cfg.read_text(encoding='utf-8',errors='ignore')
+    s=re.sub(r'RedisCacheManager\s+cacheManager\s*=\s*new\s+RedisCacheManager\(redisTemplate\)\s*;', 'RedisCacheManager cacheManager = RedisCacheManager.create(redisTemplate.getConnectionFactory());', s)
+    s=re.sub(r'\s*cacheManager\.setDefaultExpiration\([^;]+\);', '', s)
+    cfg.write_text(s,encoding='utf-8')
