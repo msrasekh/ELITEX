@@ -19,10 +19,17 @@ present={(d.findtext('m:groupId',default='',namespaces=N),d.findtext('m:artifact
 if ('org.mongodb','mongo-java-driver') not in present:
     d=ET.SubElement(deps,f'{{{ns}}}dependency'); ET.SubElement(d,f'{{{ns}}}groupId').text='org.mongodb'; ET.SubElement(d,f'{{{ns}}}artifactId').text='mongo-java-driver'; ET.SubElement(d,f'{{{ns}}}version').text='3.12.14'
 t.write(ap,encoding='utf-8',xml_declaration=True)
-# Spring 6 removed AbstractWebSocketMessageBrokerConfigurer; migrate without changing behavior.
-ws=root/'chat/src/main/java/com/bizzan/bitrade/config/WebSocketConfig.java'
-if ws.exists():
-    s=ws.read_text(encoding='utf-8',errors='ignore')
-    s=s.replace('import org.springframework.web.socket.config.annotation.AbstractWebSocketMessageBrokerConfigurer;', 'import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;')
-    s=s.replace('extends AbstractWebSocketMessageBrokerConfigurer', 'implements WebSocketMessageBrokerConfigurer')
-    ws.write_text(s,encoding='utf-8')
+# Spring 6+ removed AbstractWebSocketMessageBrokerConfigurer; migrate retained configs without changing behavior.
+for module in ('chat','market'):
+    ws=root/module/'src/main/java/com/bizzan/bitrade/config/WebSocketConfig.java'
+    if ws.exists():
+        s=ws.read_text(encoding='utf-8',errors='ignore')
+        s=s.replace('import org.springframework.web.socket.config.annotation.AbstractWebSocketMessageBrokerConfigurer;', 'import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;')
+        s=s.replace('extends AbstractWebSocketMessageBrokerConfigurer', 'implements WebSocketMessageBrokerConfigurer')
+        ws.write_text(s,encoding='utf-8')
+# Spring Kafka renamed the listener group attribute to groupId.
+consumer=root/'market/src/main/java/com/bizzan/bitrade/consumer/DataDictionarySaveUpdateConsumer.java'
+if consumer.exists():
+    s=consumer.read_text(encoding='utf-8',errors='ignore')
+    s=s.replace('group = ', 'groupId = ')
+    consumer.write_text(s,encoding='utf-8')
