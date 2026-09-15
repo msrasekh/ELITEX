@@ -6,8 +6,7 @@ versions={('org.elasticsearch','elasticsearch'):'6.2.4',('org.springframework.se
 for p in root.rglob('pom.xml'):
     t=ET.parse(p); r=t.getroot(); ch=False
     for d in r.findall('.//m:dependencies/m:dependency',N):
-        g=d.find('m:groupId',N); a=d.find('m:artifactId',N); v=d.find('m:version',N)
-        key=((g.text or '').strip() if g is not None else '',(a.text or '').strip() if a is not None else '')
+        g=d.find('m:groupId',N); a=d.find('m:artifactId',N); v=d.find('m:version',N); key=((g.text or '').strip() if g is not None else '',(a.text or '').strip() if a is not None else '')
         if key in versions and v is None: ET.SubElement(d,f'{{{ns}}}version').text=versions[key]; ch=True
         sp=d.find('m:systemPath',N)
         if sp is not None and sp.text and re.match(r'^[A-Za-z]:/',sp.text):
@@ -17,22 +16,16 @@ cp=root/'core/pom.xml'; t=ET.parse(cp); r=t.getroot(); build=r.find('m:build',N)
 for pl in list(plugins.findall('m:plugin',N)):
     a=pl.find('m:artifactId',N)
     if a is not None and a.text=='apt-maven-plugin': plugins.remove(pl)
-compiler=None
-for pl in plugins.findall('m:plugin',N):
-    a=pl.find('m:artifactId',N)
-    if a is not None and a.text=='maven-compiler-plugin': compiler=pl; break
-if compiler is None:
-    compiler=ET.SubElement(plugins,f'{{{ns}}}plugin'); ET.SubElement(compiler,f'{{{ns}}}groupId').text='org.apache.maven.plugins'; ET.SubElement(compiler,f'{{{ns}}}artifactId').text='maven-compiler-plugin'; ET.SubElement(compiler,f'{{{ns}}}version').text='3.14.0'
+compiler=next(pl for pl in plugins.findall('m:plugin',N) if pl.find('m:artifactId',N) is not None and pl.find('m:artifactId',N).text=='maven-compiler-plugin')
 conf=compiler.find('m:configuration',N)
-if conf is None: conf=ET.SubElement(compiler,f'{{{ns}}}configuration')
+proc=conf.find('m:proc',N)
+if proc is None: proc=ET.SubElement(conf,f'{{{ns}}}proc')
+proc.text='full'
 for old in list(conf.findall('m:annotationProcessorPaths',N))+list(conf.findall('m:annotationProcessors',N)): conf.remove(old)
 app=ET.SubElement(conf,f'{{{ns}}}annotationProcessorPaths')
 for g,a,v,c in [('org.projectlombok','lombok','1.18.40',None),('com.querydsl','querydsl-apt','5.1.0','jakarta')]:
     path=ET.SubElement(app,f'{{{ns}}}path'); ET.SubElement(path,f'{{{ns}}}groupId').text=g; ET.SubElement(path,f'{{{ns}}}artifactId').text=a; ET.SubElement(path,f'{{{ns}}}version').text=v
     if c: ET.SubElement(path,f'{{{ns}}}classifier').text=c
-aps=ET.SubElement(conf,f'{{{ns}}}annotationProcessors')
-ET.SubElement(aps,f'{{{ns}}}annotationProcessor').text='lombok.launch.AnnotationProcessorHider$AnnotationProcessor'
-ET.SubElement(aps,f'{{{ns}}}annotationProcessor').text='com.querydsl.apt.jpa.JPAAnnotationProcessor'
 deps=r.find('m:dependencies',N); existing=set()
 for d in deps.findall('m:dependency',N):
     g=d.find('m:groupId',N); a=d.find('m:artifactId',N)
@@ -42,7 +35,7 @@ for d in deps.findall('m:dependency',N):
             c=d.find('m:classifier',N)
             if c is None:c=ET.SubElement(d,f'{{{ns}}}classifier')
             c.text='jakarta'
-for g,a,v in [('jakarta.persistence','jakarta.persistence-api','3.1.0'),('jakarta.validation','jakarta.validation-api','3.0.2'),('org.dom4j','dom4j','2.1.4'),('org.apache.httpcomponents','httpcore','4.4.5')]:
+for g,a,v in [('jakarta.persistence','jakarta.persistence-api','3.1.0'),('jakarta.validation','jakarta.validation-api','3.0.2'),('org.dom4j','dom4j','2.1.4'),('org.apache.httpcomponents','httpcore','4.3.3')]:
     if (g,a) not in existing:
         d=ET.SubElement(deps,f'{{{ns}}}dependency'); ET.SubElement(d,f'{{{ns}}}groupId').text=g; ET.SubElement(d,f'{{{ns}}}artifactId').text=a; ET.SubElement(d,f'{{{ns}}}version').text=v
 for p in root.rglob('*.java'):
