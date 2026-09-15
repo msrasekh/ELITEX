@@ -47,7 +47,8 @@ for p in root.rglob('*.java'):
 for name in ['MemberInviteStasticDao.java','MemberInviteStasticRankDao.java']:
     p=next(root.rglob(name)); s=p.read_text(); s=s.replace(' findById(Long id)', ' findLegacyById(Long id)'); p.write_text(s)
 p=next(root.rglob('MemberInviteStasticService.java')); s=p.read_text().replace('memberInviteStasticDao.findById(id)','memberInviteStasticDao.findLegacyById(id)').replace('memberInviteStasticRankDao.findById(id)','memberInviteStasticRankDao.findLegacyById(id)'); p.write_text(s)
-p=next(root.rglob('TopBaseService.java')); s=p.read_text().replace('Sort.by(pagenation.getPageParam().getDirection(), pagenation.getPageParam().getOrders())','Sort.by(pagenation.getPageParam().getDirection(), pagenation.getPageParam().getOrders().toArray(new String[0]))'); p.write_text(s)
+for name in ['TopBaseService.java','MongoBaseService.java']:
+    p=next(root.rglob(name)); s=p.read_text().replace('Sort.by(pagenation.getPageParam().getDirection(), pagenation.getPageParam().getOrders())','Sort.by(pagenation.getPageParam().getDirection(), pagenation.getPageParam().getOrders().toArray(new String[0]))'); p.write_text(s)
 p=next(root.rglob('Criteria.java')); s=p.read_text().replace('new Sort.Order(f);','new Sort.Order(Sort.Direction.ASC, f);'); p.write_text(s)
 p=next(root.rglob('SmartHttpSessionStrategy.java')); s=p.read_text().replace('jakarta.servlet.http.HttpServletRequest','javax.servlet.http.HttpServletRequest').replace('jakarta.servlet.http.HttpServletResponse','javax.servlet.http.HttpServletResponse'); p.write_text(s)
 p=next(root.rglob('AliyunUtil.java')); s=p.read_text().replace('BASE64Encoder b64Encoder = new BASE64Encoder();\n            encodeStr = b64Encoder.encode(md5Bytes);','encodeStr = Base64.getEncoder().encodeToString(md5Bytes);').replace('(new BASE64Encoder()).encode(rawHmac)','Base64.getEncoder().encodeToString(rawHmac)'); p.write_text(s)
