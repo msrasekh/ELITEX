@@ -1,8 +1,9 @@
 name: ELITEX Deterministic Final Loop
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    branches:
+      - main
+  workflow_dispatch: {}
 permissions:
   contents: read
   actions: read
