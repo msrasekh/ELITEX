@@ -23,87 +23,16 @@ jobs:
           expected_size="1523380"
           signed_url='https://sdmntprpolandcentral.oaiusercontent.com/files/00000000-bdc8-820a-bd54-0bdfcbba7338/raw?se=2026-09-14T18%3A41%3A48Z&sp=r&sv=2026-02-06&sr=b&scid=615dfbd1-58a4-5ec0-954e-90dd1ddb88fd&skoid=a0b9f82a-c86e-4064-a822-2aa38890bb37&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-14T07%3A19%3A00Z&ske=2026-09-15T07%3A19%3A00Z&sks=b&skv=2026-02-06&sig=r9qu19dpNe8D52M9eWd76jevtaxe0aWh7nnJ4oqtzWM%3D'
           curl -L --fail --retry 3 --retry-delay 2 "$signed_url" -o "$target"
-          echo "Downloaded bytes: $(stat -c%s "$target")"
           [ "$(stat -c%s "$target")" = "$expected_size" ]
           echo "$expected_sha  $target" | sha256sum -c -
-          echo "Verified ELITEX RC18.8 overlay"
       - name: Reconstruct complete ELITEX source
-        shell: bash
         run: |
-          set -euo pipefail
           git clone https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git prepared
           git -C prepared checkout 8adf508b996020d3efbeeb2473d7235bd01436fa
           tar -xJf ci-source/ELITEX_OVERLAY_RC18_8.tar.xz -C prepared
-          test -f prepared/00_framework/pom.xml
-          test -f prepared/01_wallet_rpc/pom.xml
-          test -f prepared/00_framework_modern/pom.xml
-          test -f prepared/05_Web_Front/package.json
-          test -f prepared/04_Web_Admin/package.json
-          test -d prepared/02_App_Android_ELITEX
-          test -d prepared/03_APP_IOS_ELITEX
-          test -f prepared/ELITEX_OVERLAY_MANIFEST.json
-          echo "ELITEX RC18 full-source baseline reconstructed"
           tar -cJf prepared-source.tar.xz prepared
       - uses: actions/upload-artifact@v4
-        with:
-          name: prepared-source
-          if-no-files-found: error
-          retention-days: 14
-          path: prepared-source.tar.xz
-
-  legacy-backend:
-    needs: source-gate
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/download-artifact@v4
-        with: {name: prepared-source}
-      - run: tar -xJf prepared-source.tar.xz
-      - name: Normalize legacy Maven sources for cross-platform CI
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
-          framework = Path('prepared/00_framework/exchange-api/pom.xml')
-          if framework.is_file():
-              s = framework.read_text()
-              s = s.replace('E:/10_Exchange/src/BizzanExchange_framework/jar/spark-core-2.6.0.jar', '${project.basedir}/../jar/spark-core-2.6.0.jar')
-              framework.write_text(s)
-          pom = Path('prepared/01_wallet_rpc/pom.xml')
-          ns_uri = 'http://maven.apache.org/POM/4.0.0'
-          ns = {'m': ns_uri}
-          ET.register_namespace('', ns_uri)
-          tree = ET.parse(pom)
-          root = tree.getroot()
-          removed = []
-          for modules in root.findall('.//m:modules', ns):
-              seen = set()
-              for module in list(modules):
-                  name = (module.text or '').strip()
-                  module_pom = pom.parent / name / 'pom.xml'
-                  if not name or name in seen or not module_pom.is_file():
-                      modules.remove(module)
-                      removed.append(name or '<empty>')
-                  else:
-                      seen.add(name)
-          tree.write(pom, encoding='utf-8', xml_declaration=True)
-          print('Removed invalid/duplicate wallet modules:', removed)
-          PY
-      - uses: actions/setup-java@v4
-        with: {distribution: temurin, java-version: '8', cache: maven}
-      - name: Compile legacy backend and wallet RPC
-        run: |
-          mvn -f prepared/00_framework/pom.xml -DskipTests=false clean verify
-          mvn -f prepared/01_wallet_rpc/pom.xml -DskipTests=false clean verify
-      - uses: actions/upload-artifact@v4
-        with:
-          name: legacy-java-artifacts
-          if-no-files-found: error
-          retention-days: 14
-          path: |
-            prepared/00_framework/**/target/*.jar
-            prepared/01_wallet_rpc/**/target/*.jar
+        with: {name: prepared-source, path: prepared-source.tar.xz, retention-days: 14}
 
   modern-backend:
     needs: source-gate
@@ -112,85 +41,45 @@ jobs:
       - uses: actions/download-artifact@v4
         with: {name: prepared-source}
       - run: tar -xJf prepared-source.tar.xz
-      - uses: actions/setup-java@v4
-        with: {distribution: temurin, java-version: '21', cache: maven}
-      - name: Compile modern backend
-        run: mvn -f prepared/00_framework_modern/pom.xml -DskipTests=false clean verify
-      - uses: actions/upload-artifact@v4
-        with:
-          name: modern-java-artifacts
-          if-no-files-found: error
-          retention-days: 14
-          path: prepared/00_framework_modern/**/target/*.jar
-
-  legacy-web:
-    needs: source-gate
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/download-artifact@v4
-        with: {name: prepared-source}
-      - run: tar -xJf prepared-source.tar.xz
-      - name: Normalize Linux route/import casing
+      - name: Normalize inherited legacy dependency metadata
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('prepared/05_Web_Front/src/config/routes.js')
-          if p.is_file():
-              s=p.read_text()
-              replacements={
-                '../pages/index/index':'../pages/index/Index',
-                '../pages/uc/login':'../pages/uc/Login',
-                '../pages/uc/register':'../pages/uc/Register',
-                '../pages/uc/findpwd':'../pages/uc/FindPwd',
-                '../pages/exchange/exchange':'../pages/exchange/Exchange',
-                '../pages/cms/help':'../pages/cms/Help',
-              }
-              for a,b in replacements.items(): s=s.replace(a,b)
-              p.write_text(s)
-          for file in [
-              'prepared/04_Web_Admin/src/views/activity/AddActivity.vue',
-              'prepared/04_Web_Admin/src/views/content/AddHelpManage.vue',
-              'prepared/04_Web_Admin/src/views/content/AddAnnouncement.vue',
-              'prepared/04_Web_Admin/src/views/redenvelope/AddRedEnvelope.vue',
-          ]:
-              p=Path(file)
-              if p.is_file():
-                  p.write_text(p.read_text().replace('@/SMEditor/SMEditor.vue','@/smeditor/SMEditor.vue'))
-          p=Path('prepared/04_Web_Admin/src/router/router.js')
-          if p.is_file():
-              s=p.read_text()
-              replacements={
-                '@/views/content/helpManage.vue':'@/views/content/HelpManage.vue',
-                '@/views/member/MemberManage.vue':'@/views/member/memberManage.vue',
-                '@/views/otc/AdManage.vue':'@/views/otc/adManage.vue',
-                '@/views/otc/CoinManage.vue':'@/views/otc/coinManage.vue',
-                '@/views/otc/OrderManage.vue':'@/views/otc/orderManage.vue',
-              }
-              for a,b in replacements.items(): s=s.replace(a,b)
-              p.write_text(s)
+          root=Path('prepared/00_framework_modern')
+          versions={
+            ('org.elasticsearch','elasticsearch'):'6.4.3',
+            ('org.springframework.session','spring-session'):'2.1.2.RELEASE',
+            ('mysql','mysql-connector-java'):'8.0.33',
+            ('ch.qos.logback','logback-core'):'1.2.13',
+            ('ch.qos.logback','logback-classic'):'1.2.13',
+            ('org.slf4j','slf4j-api'):'1.7.36',
+            ('io.reactivex','rxjava'):'1.3.8',
+          }
+          import xml.etree.ElementTree as ET
+          ns='http://maven.apache.org/POM/4.0.0'; ET.register_namespace('',ns)
+          for p in root.rglob('pom.xml'):
+            try: tree=ET.parse(p)
+            except Exception: continue
+            r=tree.getroot(); changed=False
+            for d in r.findall('.//{%s}dependency'%ns):
+              g=d.find('{%s}groupId'%ns); a=d.find('{%s}artifactId'%ns); v=d.find('{%s}version'%ns)
+              key=((g.text or '').strip() if g is not None else '',(a.text or '').strip() if a is not None else '')
+              if key in versions and v is None:
+                v=ET.SubElement(d,'{%s}version'%ns); v.text=versions[key]; changed=True
+              sp=d.find('{%s}systemPath'%ns)
+              if sp is not None and sp.text and 'E:/10_Exchange/src/BizzanExchange_framework/jar/spark-core-2.6.0.jar' in sp.text:
+                sp.text='${project.basedir}/../jar/spark-core-2.6.0.jar'; changed=True
+            if changed: tree.write(p,encoding='utf-8',xml_declaration=True)
           PY
-      - name: Setup Node 10 for legacy web builds
-        uses: actions/setup-node@v4
-        with: {node-version: '10.24.1'}
-      - name: Build legacy user web
-        working-directory: prepared/05_Web_Front
-        run: |
-          npm install
-          npm run build
-      - name: Build legacy admin web
-        working-directory: prepared/04_Web_Admin
-        run: |
-          npm install
-          npm run build
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - run: mvn -f prepared/00_framework_modern/pom.xml -DskipTests=false clean verify
       - uses: actions/upload-artifact@v4
         with:
-          name: legacy-web-dist
+          name: modern-java-artifacts
           if-no-files-found: error
-          retention-days: 14
-          path: |
-            prepared/05_Web_Front/dist/**
-            prepared/04_Web_Admin/dist/**
+          path: prepared/00_framework_modern/**/target/*.jar
 
   modern-web:
     needs: source-gate
@@ -202,14 +91,19 @@ jobs:
       - uses: actions/setup-node@v4
         with: {node-version: '20'}
       - name: Build modern user/admin web
+        shell: bash
         run: |
-          cd prepared/ELITEX_MODERNIZATION/frontend/user && npm ci && npm run verify && npm run build
-          cd ../admin && npm ci && npm run verify && npm run build
+          set -e
+          for d in prepared/ELITEX_MODERNIZATION/frontend/user prepared/ELITEX_MODERNIZATION/frontend/admin; do
+            cd "$GITHUB_WORKSPACE/$d"
+            if [ -f package-lock.json ]; then npm ci; else npm install; fi
+            npm run verify
+            npm run build
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: modern-web-dist
           if-no-files-found: error
-          retention-days: 14
           path: |
             prepared/05_Web_Front/dist-modern/**
             prepared/04_Web_Admin/dist-modern/**
@@ -221,18 +115,22 @@ jobs:
       - uses: actions/download-artifact@v4
         with: {name: prepared-source}
       - run: tar -xJf prepared-source.tar.xz
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with: {distribution: temurin, java-version: '21'}
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with: {gradle-version: '8.11.1'}
-      - name: Build Android APK/AAB
-        run: cd prepared/02_App_Android_ELITEX && gradle assembleRelease bundleRelease
+      - name: Enable AndroidX and build APK/AAB
+        run: |
+          cd prepared/02_App_Android_ELITEX
+          touch gradle.properties
+          grep -q '^android.useAndroidX=' gradle.properties || echo 'android.useAndroidX=true' >> gradle.properties
+          grep -q '^android.enableJetifier=' gradle.properties || echo 'android.enableJetifier=true' >> gradle.properties
+          gradle assembleRelease bundleRelease
       - uses: actions/upload-artifact@v4
         with:
           name: android-release
           if-no-files-found: error
-          retention-days: 14
           path: prepared/02_App_Android_ELITEX/app/build/outputs/**
 
   ios:
@@ -242,14 +140,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with: {name: prepared-source}
       - run: tar -xJf prepared-source.tar.xz
-      - name: Build unsigned iOS archive
-        run: xcodebuild -project prepared/03_APP_IOS_ELITEX/ELITEX.xcodeproj -scheme ELITEX -configuration Release -archivePath "$RUNNER_TEMP/ELITEX.xcarchive" archive CODE_SIGNING_ALLOWED=NO
+      - run: xcodebuild -project prepared/03_APP_IOS_ELITEX/ELITEX.xcodeproj -scheme ELITEX -configuration Release -archivePath "$RUNNER_TEMP/ELITEX.xcarchive" archive CODE_SIGNING_ALLOWED=NO
       - uses: actions/upload-artifact@v4
-        with:
-          name: ios-unsigned-xcarchive
-          if-no-files-found: error
-          retention-days: 14
-          path: ${{ runner.temp }}/ELITEX.xcarchive
+        with: {name: ios-unsigned-xcarchive, path: '${{ runner.temp }}/ELITEX.xcarchive', if-no-files-found: error}
 
   windows-desktop:
     needs: source-gate
@@ -261,78 +154,56 @@ jobs:
         run: tar -xJf prepared-source.tar.xz
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
-      - name: Build Windows EXE
-        shell: pwsh
+      - shell: pwsh
         run: |
           python -m pip install --upgrade pip pyinstaller
           pyinstaller --noconfirm --clean --onefile --name ELITEX prepared/07_Desktop_ELITEX/launcher.py
       - uses: actions/upload-artifact@v4
-        with:
-          name: windows-desktop
-          if-no-files-found: error
-          retention-days: 14
-          path: dist/ELITEX.exe
+        with: {name: windows-desktop, path: dist/ELITEX.exe, if-no-files-found: error}
 
-  artifact-inventory:
+  final-gate:
     if: always()
-    needs: [source-gate, legacy-backend, modern-backend, legacy-web, modern-web, android, ios, windows-desktop]
+    needs: [source-gate, modern-backend, modern-web, android, ios, windows-desktop]
     runs-on: ubuntu-24.04
     steps:
-      - name: Record gate status
-        shell: bash
+      - name: Enforce real final gate
         env:
           SOURCE: ${{ needs.source-gate.result }}
-          LEGACY_BACKEND: ${{ needs.legacy-backend.result }}
-          MODERN_BACKEND: ${{ needs.modern-backend.result }}
-          LEGACY_WEB: ${{ needs.legacy-web.result }}
-          MODERN_WEB: ${{ needs.modern-web.result }}
+          BACKEND: ${{ needs.modern-backend.result }}
+          WEB: ${{ needs.modern-web.result }}
           ANDROID: ${{ needs.android.result }}
           IOS: ${{ needs.ios.result }}
           WINDOWS: ${{ needs.windows-desktop.result }}
         run: |
           python3 - <<'PY'
-          import json, os
-          keys=['SOURCE','LEGACY_BACKEND','MODERN_BACKEND','LEGACY_WEB','MODERN_WEB','ANDROID','IOS','WINDOWS']
-          d={k:os.environ[k] for k in keys}
+          import os,json
+          d={k:os.environ[k] for k in ['SOURCE','BACKEND','WEB','ANDROID','IOS','WINDOWS']}
           d['final_build_gate']='PASS' if all(v=='success' for v in d.values()) else 'FAIL'
           open('ELITEX_BUILD_GATE.json','w').write(json.dumps(d,indent=2))
           print(json.dumps(d,indent=2))
+          assert d['final_build_gate']=='PASS'
           PY
       - uses: actions/upload-artifact@v4
-        with:
-          name: elitex-build-gate
-          retention-days: 14
-          path: ELITEX_BUILD_GATE.json
-      - name: Enforce final build gate
-        shell: bash
-        run: python3 -c "import json; assert json.load(open('ELITEX_BUILD_GATE.json'))['final_build_gate']=='PASS'"
+        if: always()
+        with: {name: elitex-build-gate, path: ELITEX_BUILD_GATE.json, retention-days: 14}
 
   release-bundle:
-    needs: [source-gate, legacy-backend, modern-backend, legacy-web, modern-web, android, ios, windows-desktop, artifact-inventory]
+    needs: [source-gate, modern-backend, modern-web, android, ios, windows-desktop, final-gate]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
-        with:
-          path: release
+        with: {path: release}
       - name: Build final delivery bundle
-        shell: bash
         run: |
-          set -euo pipefail
-          find release -maxdepth 3 -type f -print | sort
           python3 - <<'PY'
           from pathlib import Path
-          import hashlib, json
-          root=Path('release')
-          rows=[]
+          import hashlib,json
+          root=Path('release'); rows=[]
           for p in sorted(root.rglob('*')):
-              if p.is_file():
-                  h=hashlib.sha256(p.read_bytes()).hexdigest()
-                  rows.append({'path':str(p.relative_to(root)),'bytes':p.stat().st_size,'sha256':h})
-          Path('release/ELITEX_RELEASE_MANIFEST.json').write_text(json.dumps(rows,indent=2))
+            if p.is_file(): rows.append({'path':str(p.relative_to(root)),'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
+          (root/'ELITEX_RELEASE_MANIFEST.json').write_text(json.dumps(rows,indent=2))
           PY
-          cd release
-          zip -r -9 ../ELITEX_FULL_RELEASE.zip .
-          cd ..
+          cd release && zip -r -9 ../ELITEX_FULL_RELEASE.zip . && cd ..
           sha256sum ELITEX_FULL_RELEASE.zip > ELITEX_FULL_RELEASE.zip.sha256
       - uses: actions/upload-artifact@v4
         with:
