@@ -23,7 +23,7 @@ if proc is None: proc=ET.SubElement(conf,f'{{{ns}}}proc')
 proc.text='full'
 for old in list(conf.findall('m:annotationProcessorPaths',N))+list(conf.findall('m:annotationProcessors',N)): conf.remove(old)
 app=ET.SubElement(conf,f'{{{ns}}}annotationProcessorPaths')
-for g,a,v,c in [('org.projectlombok','lombok','1.18.40',None),('com.querydsl','querydsl-apt','5.1.0','jakarta')]:
+for g,a,v,c in [('org.projectlombok','lombok','1.18.40',None),('com.querydsl','querydsl-apt','5.1.0','jakarta'),('jakarta.persistence','jakarta.persistence-api','3.1.0',None),('jakarta.annotation','jakarta.annotation-api','2.1.1',None)]:
     path=ET.SubElement(app,f'{{{ns}}}path'); ET.SubElement(path,f'{{{ns}}}groupId').text=g; ET.SubElement(path,f'{{{ns}}}artifactId').text=a; ET.SubElement(path,f'{{{ns}}}version').text=v
     if c: ET.SubElement(path,f'{{{ns}}}classifier').text=c
 deps=r.find('m:dependencies',N); existing=set()
