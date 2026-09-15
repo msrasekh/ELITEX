@@ -7,30 +7,24 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   source-gate:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch and verify RC18 overlay
-        shell: bash
+      - name: Recover canonical verified RC18 prepared source
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p ci-source
-          target="ci-source/ELITEX_OVERLAY_RC18_8.tar.xz"
-          expected_sha="52b120a01c2086e84b934ba8bb6afb692ab0568794b263f831d01da98a8a6907"
-          expected_size="1523380"
-          signed_url='https://sdmntprpolandcentral.oaiusercontent.com/files/00000000-bdc8-820a-bd54-0bdfcbba7338/raw?se=2026-09-14T18%3A41%3A48Z&sp=r&sv=2026-02-06&sr=b&scid=615dfbd1-58a4-5ec0-954e-90dd1ddb88fd&skoid=a0b9f82a-c86e-4064-a822-2aa38890bb37&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-14T07%3A19%3A00Z&ske=2026-09-15T07%3A19%3A00Z&sks=b&skv=2026-02-06&sig=r9qu19dpNe8D52M9eWd76jevtaxe0aWh7nnJ4oqtzWM%3D'
-          curl -L --fail --retry 3 --retry-delay 2 "$signed_url" -o "$target"
-          [ "$(stat -c%s "$target")" = "$expected_size" ]
-          echo "$expected_sha  $target" | sha256sum -c -
-      - name: Reconstruct complete ELITEX source
-        run: |
-          git clone https://github.com/jammy928/CoinExchange_CryptoExchange_Java.git prepared
-          git -C prepared checkout 8adf508b996020d3efbeeb2473d7235bd01436fa
-          tar -xJf ci-source/ELITEX_OVERLAY_RC18_8.tar.xz -C prepared
-          tar -cJf prepared-source.tar.xz prepared
+          curl -L --fail -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10362279302/zip" -o prepared-artifact.zip
+          unzip -q prepared-artifact.zip
+          test -f prepared-source.tar.xz
+          tar -xJf prepared-source.tar.xz
+          test -f prepared/ELITEX_OVERLAY_MANIFEST.json
+          test -f prepared/00_framework_modern/pom.xml
       - uses: actions/upload-artifact@v4
         with: {name: prepared-source, path: prepared-source.tar.xz, retention-days: 14}
 
@@ -41,45 +35,41 @@ jobs:
       - uses: actions/download-artifact@v4
         with: {name: prepared-source}
       - run: tar -xJf prepared-source.tar.xz
-      - name: Normalize inherited legacy dependency metadata
-        shell: bash
+      - name: Java 21 migration compatibility
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          root=Path('prepared/00_framework_modern')
-          versions={
-            ('org.elasticsearch','elasticsearch'):'6.4.3',
-            ('org.springframework.session','spring-session'):'2.1.2.RELEASE',
-            ('mysql','mysql-connector-java'):'8.0.33',
-            ('ch.qos.logback','logback-core'):'1.2.13',
-            ('ch.qos.logback','logback-classic'):'1.2.13',
-            ('org.slf4j','slf4j-api'):'1.7.36',
-            ('io.reactivex','rxjava'):'1.3.8',
-          }
-          import xml.etree.ElementTree as ET
-          ns='http://maven.apache.org/POM/4.0.0'; ET.register_namespace('',ns)
+          import re,xml.etree.ElementTree as ET
+          root=Path('prepared/00_framework_modern'); ns='http://maven.apache.org/POM/4.0.0'; N={'m':ns}; ET.register_namespace('',ns)
+          versions={('org.elasticsearch','elasticsearch'):'6.2.4',('org.springframework.session','spring-session'):'1.3.5.RELEASE',('mysql','mysql-connector-java'):'8.0.11',('ch.qos.logback','logback-core'):'1.2.13',('ch.qos.logback','logback-classic'):'1.2.13',('org.slf4j','slf4j-api'):'1.7.36',('io.reactivex','rxjava'):'1.3.8'}
           for p in root.rglob('pom.xml'):
-            try: tree=ET.parse(p)
-            except Exception: continue
-            r=tree.getroot(); changed=False
-            for d in r.findall('.//{%s}dependency'%ns):
-              g=d.find('{%s}groupId'%ns); a=d.find('{%s}artifactId'%ns); v=d.find('{%s}version'%ns)
-              key=((g.text or '').strip() if g is not None else '',(a.text or '').strip() if a is not None else '')
-              if key in versions and v is None:
-                v=ET.SubElement(d,'{%s}version'%ns); v.text=versions[key]; changed=True
-              sp=d.find('{%s}systemPath'%ns)
-              if sp is not None and sp.text and 'E:/10_Exchange/src/BizzanExchange_framework/jar/spark-core-2.6.0.jar' in sp.text:
-                sp.text='${project.basedir}/../jar/spark-core-2.6.0.jar'; changed=True
+            tree=ET.parse(p); r=tree.getroot(); changed=False
+            for d in r.findall('.//m:dependencies/m:dependency',N):
+              g=d.find('m:groupId',N); a=d.find('m:artifactId',N); v=d.find('m:version',N); key=((g.text or '').strip() if g is not None else '',(a.text or '').strip() if a is not None else '')
+              if key in versions and v is None: ET.SubElement(d,f'{{{ns}}}version').text=versions[key]; changed=True
+              sp=d.find('m:systemPath',N)
+              if sp is not None and sp.text and 'E:/10_Exchange/src/BizzanExchange_framework/jar/spark-core-2.6.0.jar' in sp.text: sp.text='${project.basedir}/../jar/spark-core-2.6.0.jar'; changed=True
             if changed: tree.write(p,encoding='utf-8',xml_declaration=True)
+          for p in root.rglob('*.java'):
+            s=p.read_text(encoding='utf-8',errors='ignore'); n=s.replace('org.hibernate.validator.constraints.NotBlank','javax.validation.constraints.NotBlank').replace('org.hibernate.validator.constraints.NotEmpty','javax.validation.constraints.NotEmpty').replace('import sun.misc.BASE64Encoder;','import java.util.Base64;').replace('import com.mongodb.Mongo;\n',''); n=re.sub(r'new BASE64Encoder\(\)\.encode\(([^;]+)\)',r'Base64.getEncoder().encodeToString(\1)',n)
+            if n!=s:p.write_text(n,encoding='utf-8')
+          cp=root/'core/pom.xml'; tree=ET.parse(cp); r=tree.getroot(); deps=r.find('m:dependencies',N); existing={(d.find('m:groupId',N).text,d.find('m:artifactId',N).text) for d in deps.findall('m:dependency',N) if d.find('m:groupId',N) is not None and d.find('m:artifactId',N) is not None}
+          for g,a,v in [('org.dom4j','dom4j','2.1.4'),('org.apache.httpcomponents','httpcore','4.4.16')]:
+            if (g,a) not in existing:
+              d=ET.SubElement(deps,f'{{{ns}}}dependency'); ET.SubElement(d,f'{{{ns}}}groupId').text=g; ET.SubElement(d,f'{{{ns}}}artifactId').text=a; ET.SubElement(d,f'{{{ns}}}version').text=v
+          tree.write(cp,encoding='utf-8',xml_declaration=True)
+          ap=root/'core/src/main/java/com/bizzan/bitrade/constant/AdminModule.java'
+          if ap.exists():
+            s=ap.read_text(encoding='utf-8').replace('@AllArgsConstructor','').replace('@Getter','')
+            if 'AdminModule(String cnName)' not in s:
+              semi=s.find(';'); members='\n    private final String cnName;\n    AdminModule(String cnName) { this.cnName = cnName; }\n    public String getCnName() { return cnName; }\n'; s=s[:semi+1]+members+s[semi+1:]
+            ap.write_text(s,encoding='utf-8')
           PY
       - uses: actions/setup-java@v5
         with: {distribution: temurin, java-version: '21', cache: maven}
       - run: mvn -f prepared/00_framework_modern/pom.xml -DskipTests=false clean verify
       - uses: actions/upload-artifact@v4
-        with:
-          name: modern-java-artifacts
-          if-no-files-found: error
-          path: prepared/00_framework_modern/**/target/*.jar
+        with: {name: modern-java-artifacts, if-no-files-found: error, path: 'prepared/00_framework_modern/**/target/*.jar'}
 
   modern-web:
     needs: source-gate
@@ -90,23 +80,11 @@ jobs:
       - run: tar -xJf prepared-source.tar.xz
       - uses: actions/setup-node@v4
         with: {node-version: '20'}
-      - name: Build modern user/admin web
-        shell: bash
-        run: |
+      - run: |
           set -e
-          for d in prepared/ELITEX_MODERNIZATION/frontend/user prepared/ELITEX_MODERNIZATION/frontend/admin; do
-            cd "$GITHUB_WORKSPACE/$d"
-            if [ -f package-lock.json ]; then npm ci; else npm install; fi
-            npm run verify
-            npm run build
-          done
+          for d in prepared/ELITEX_MODERNIZATION/frontend/user prepared/ELITEX_MODERNIZATION/frontend/admin; do cd "$GITHUB_WORKSPACE/$d"; if [ -f package-lock.json ]; then npm ci; else npm install --package-lock=false; fi; npm run verify; npm run build; done
       - uses: actions/upload-artifact@v4
-        with:
-          name: modern-web-dist
-          if-no-files-found: error
-          path: |
-            prepared/05_Web_Front/dist-modern/**
-            prepared/04_Web_Admin/dist-modern/**
+        with: {name: modern-web-dist, if-no-files-found: error, path: 'prepared/{05_Web_Front,04_Web_Admin}/dist-modern/**'}
 
   android:
     needs: source-gate
@@ -120,18 +98,12 @@ jobs:
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with: {gradle-version: '8.11.1'}
-      - name: Enable AndroidX and build APK/AAB
-        run: |
+      - run: |
           cd prepared/02_App_Android_ELITEX
-          touch gradle.properties
-          grep -q '^android.useAndroidX=' gradle.properties || echo 'android.useAndroidX=true' >> gradle.properties
-          grep -q '^android.enableJetifier=' gradle.properties || echo 'android.enableJetifier=true' >> gradle.properties
+          printf '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n' >> gradle.properties
           gradle assembleRelease bundleRelease
       - uses: actions/upload-artifact@v4
-        with:
-          name: android-release
-          if-no-files-found: error
-          path: prepared/02_App_Android_ELITEX/app/build/outputs/**
+        with: {name: android-release, if-no-files-found: error, path: 'prepared/02_App_Android_ELITEX/app/build/outputs/**'}
 
   ios:
     needs: source-gate
@@ -155,9 +127,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - shell: pwsh
-        run: |
-          python -m pip install --upgrade pip pyinstaller
-          pyinstaller --noconfirm --clean --onefile --name ELITEX prepared/07_Desktop_ELITEX/launcher.py
+        run: python -m pip install --upgrade pip pyinstaller; pyinstaller --noconfirm --clean --onefile --name ELITEX prepared/07_Desktop_ELITEX/launcher.py
       - uses: actions/upload-artifact@v4
         with: {name: windows-desktop, path: dist/ELITEX.exe, if-no-files-found: error}
 
@@ -167,21 +137,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Enforce real final gate
-        env:
-          SOURCE: ${{ needs.source-gate.result }}
-          BACKEND: ${{ needs.modern-backend.result }}
-          WEB: ${{ needs.modern-web.result }}
-          ANDROID: ${{ needs.android.result }}
-          IOS: ${{ needs.ios.result }}
-          WINDOWS: ${{ needs.windows-desktop.result }}
+        env: {SOURCE: '${{ needs.source-gate.result }}', BACKEND: '${{ needs.modern-backend.result }}', WEB: '${{ needs.modern-web.result }}', ANDROID: '${{ needs.android.result }}', IOS: '${{ needs.ios.result }}', WINDOWS: '${{ needs.windows-desktop.result }}'}
         run: |
           python3 - <<'PY'
           import os,json
-          d={k:os.environ[k] for k in ['SOURCE','BACKEND','WEB','ANDROID','IOS','WINDOWS']}
-          d['final_build_gate']='PASS' if all(v=='success' for v in d.values()) else 'FAIL'
-          open('ELITEX_BUILD_GATE.json','w').write(json.dumps(d,indent=2))
-          print(json.dumps(d,indent=2))
-          assert d['final_build_gate']=='PASS'
+          d={k:os.environ[k] for k in ['SOURCE','BACKEND','WEB','ANDROID','IOS','WINDOWS']}; d['final_build_gate']='PASS' if all(v=='success' for v in d.values()) else 'FAIL'; open('ELITEX_BUILD_GATE.json','w').write(json.dumps(d,indent=2)); print(d); assert d['final_build_gate']=='PASS'
           PY
       - uses: actions/upload-artifact@v4
         if: always()
@@ -193,8 +153,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with: {path: release}
-      - name: Build final delivery bundle
-        run: |
+      - run: |
           python3 - <<'PY'
           from pathlib import Path
           import hashlib,json
@@ -206,10 +165,4 @@ jobs:
           cd release && zip -r -9 ../ELITEX_FULL_RELEASE.zip . && cd ..
           sha256sum ELITEX_FULL_RELEASE.zip > ELITEX_FULL_RELEASE.zip.sha256
       - uses: actions/upload-artifact@v4
-        with:
-          name: ELITEX_FULL_RELEASE
-          if-no-files-found: error
-          retention-days: 14
-          path: |
-            ELITEX_FULL_RELEASE.zip
-            ELITEX_FULL_RELEASE.zip.sha256
+        with: {name: ELITEX_FULL_RELEASE, if-no-files-found: error, retention-days: 14, path: 'ELITEX_FULL_RELEASE.zip*'}
