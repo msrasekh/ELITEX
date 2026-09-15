@@ -19,3 +19,10 @@ present={(d.findtext('m:groupId',default='',namespaces=N),d.findtext('m:artifact
 if ('org.mongodb','mongo-java-driver') not in present:
     d=ET.SubElement(deps,f'{{{ns}}}dependency'); ET.SubElement(d,f'{{{ns}}}groupId').text='org.mongodb'; ET.SubElement(d,f'{{{ns}}}artifactId').text='mongo-java-driver'; ET.SubElement(d,f'{{{ns}}}version').text='3.12.14'
 t.write(ap,encoding='utf-8',xml_declaration=True)
+# Spring 6 removed AbstractWebSocketMessageBrokerConfigurer; migrate without changing behavior.
+ws=root/'chat/src/main/java/com/bizzan/bitrade/config/WebSocketConfig.java'
+if ws.exists():
+    s=ws.read_text(encoding='utf-8',errors='ignore')
+    s=s.replace('import org.springframework.web.socket.config.annotation.AbstractWebSocketMessageBrokerConfigurer;', 'import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;')
+    s=s.replace('extends AbstractWebSocketMessageBrokerConfigurer', 'implements WebSocketMessageBrokerConfigurer')
+    ws.write_text(s,encoding='utf-8')
