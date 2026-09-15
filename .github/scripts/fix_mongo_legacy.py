@@ -51,4 +51,7 @@ for java in root.rglob('*.java'):
     s=java.read_text(encoding='utf-8',errors='ignore')
     n=s.replace('org.apache.catalina.servlet4preview.http.HttpServletRequest','jakarta.servlet.http.HttpServletRequest').replace('org.apache.catalina.servlet4preview.http.HttpServletResponse','jakarta.servlet.http.HttpServletResponse').replace('org.hibernate.validator.constraints.Email','jakarta.validation.constraints.Email').replace('org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration','org.springframework.boot.data.mongodb.autoconfigure.DataMongoAutoConfiguration').replace('MongoDataAutoConfiguration.class','DataMongoAutoConfiguration.class').replace('org.springframework.boot.autoconfigure.mongo.MongoAutoConfiguration','org.springframework.boot.mongodb.autoconfigure.MongoAutoConfiguration')
     n=re.sub(r'^import com\.netflix\.discovery\.converters\.[^;]+;\s*$', '', n, flags=re.M)
+    n=n.replace('ServletFileUpload.isMultipartContent(request)', '(request.getContentType() != null && request.getContentType().toLowerCase().startsWith("multipart/"))')
+    if java.name=='LoginController.java' and 'AuthenticationException' in n and 'import org.apache.shiro.authc.AuthenticationException;' not in n:
+        n=n.replace('package com.bizzan.bitrade.controller;','package com.bizzan.bitrade.controller;\n\nimport org.apache.shiro.authc.AuthenticationException;')
     if n!=s: java.write_text(n,encoding='utf-8')
