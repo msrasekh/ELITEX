@@ -52,6 +52,16 @@ p=next(root.rglob('MongoBaseService.java')); s=p.read_text().replace('Sort.by(pa
 p=next(root.rglob('Criteria.java')); s=p.read_text().replace('new Sort.Order(f);','new Sort.Order(Sort.Direction.ASC, f);'); p.write_text(s)
 p=next(root.rglob('SmartHttpSessionStrategy.java')); s=p.read_text().replace('jakarta.servlet.http.HttpServletRequest','javax.servlet.http.HttpServletRequest').replace('jakarta.servlet.http.HttpServletResponse','javax.servlet.http.HttpServletResponse'); p.write_text(s)
 p=next(root.rglob('AliyunUtil.java')); s=p.read_text().replace('BASE64Encoder b64Encoder = new BASE64Encoder();\n            encodeStr = b64Encoder.encode(md5Bytes);','encodeStr = Base64.getEncoder().encodeToString(md5Bytes);').replace('(new BASE64Encoder()).encode(rawHmac)','Base64.getEncoder().encodeToString(rawHmac)'); p.write_text(s)
+# The retained prepared artifact contains one finance-controller line with literal double-backslashes
+# before quotes. Repair only that source instead of broad source rewriting.
+p=root/'admin/src/main/java/com/bizzan/bitrade/controller/finance/FinanceStatisticsController.java'
+if p.exists():
+    s=p.read_text(encoding='utf-8',errors='ignore')
+    lines=s.splitlines(True)
+    if len(lines) >= 115 and '\\\\' in lines[114]:
+        lines[114]=lines[114].replace('\\\\"','\\"')
+        s=''.join(lines)
+    p.write_text(s,encoding='utf-8')
 p=root/'core/src/test/java/com/bizzan/bitrade/test/BaseTest.java'
 if p.exists():
     s=p.read_text().replace('import org.springframework.test.context.transaction.TransactionConfiguration;','import org.springframework.transaction.annotation.Transactional;\nimport org.springframework.test.annotation.Rollback;').replace('@TransactionConfiguration(transactionManager = "transactionManager", defaultRollback = false)','@Transactional(transactionManager = "transactionManager")\n@Rollback(false)'); p.write_text(s)
