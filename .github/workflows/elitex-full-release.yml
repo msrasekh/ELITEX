@@ -37,6 +37,13 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      - name: Delombok retained legacy sources
+        run: |
+          mvn -q dependency:get -Dartifact=org.projectlombok:lombok:1.18.40
+          java -jar "$HOME/.m2/repository/org/projectlombok/lombok/1.18.40/lombok-1.18.40.jar" delombok prepared/00_framework_modern/core/src/main/java -d /tmp/core-delombok
+          rm -rf prepared/00_framework_modern/core/src/main/java
+          mkdir -p prepared/00_framework_modern/core/src/main
+          mv /tmp/core-delombok prepared/00_framework_modern/core/src/main/java
       - run: mvn -f prepared/00_framework_modern/pom.xml -DskipTests=false clean verify
       - uses: actions/upload-artifact@v4
         with:
@@ -157,7 +164,6 @@ jobs:
           IOS: ${{ needs.ios.result }}
           WINDOWS: ${{ needs.windows-desktop.result }}
         run: |
-          echo "$SOURCE $BACKEND $WEB $ANDROID $IOS $WINDOWS"
           test "$SOURCE" = success
           test "$BACKEND" = success
           test "$WEB" = success
