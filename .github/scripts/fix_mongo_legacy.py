@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import xml.etree.ElementTree as ET
 root=Path('prepared/00_framework_modern')
 p=root/'core/src/main/java/com/bizzan/bitrade/util/Decimal128ToBigDecimalConverter.java'
@@ -33,3 +34,9 @@ if consumer.exists():
     s=consumer.read_text(encoding='utf-8',errors='ignore')
     s=s.replace('group = ', 'groupId = ')
     consumer.write_text(s,encoding='utf-8')
+# New Spring Messaging overloads make convertAndSend(destination, null) ambiguous.
+push=root/'market/src/main/java/com/bizzan/bitrade/job/ExchangePushJob.java'
+if push.exists():
+    s=push.read_text(encoding='utf-8',errors='ignore')
+    s=re.sub(r'(\.convertAndSend\([^,\n]+,)\s*null(\s*\))', r'\1 (Object) null\2', s)
+    push.write_text(s,encoding='utf-8')
