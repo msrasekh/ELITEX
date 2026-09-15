@@ -31,7 +31,9 @@ jobs:
         with:
           name: prepared-source
       - run: tar -xJf prepared-source.tar.xz
-      - run: python3 .github/scripts/normalize_final.py
+      - run: |
+          python3 .github/scripts/normalize_final.py
+          python3 .github/scripts/fix_mongo_legacy.py
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
